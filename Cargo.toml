@@ -1,0 +1,54 @@
+[workspace]
+members = [
+    "crates/dodbogi-app",
+    "crates/dodbogi-core",
+    "crates/dodbogi-win32",
+    "crates/dodbogi-capture",
+    "crates/dodbogi-render-d3d11",
+    "crates/dodbogi-effects",
+    "crates/dodbogi-input",
+    "crates/dodbogi-parity",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+repository = "https://example.invalid/dodbogi"
+
+[workspace.dependencies]
+dodbogi-core = { path = "crates/dodbogi-core" }
+dodbogi-win32 = { path = "crates/dodbogi-win32" }
+dodbogi-capture = { path = "crates/dodbogi-capture" }
+dodbogi-render-d3d11 = { path = "crates/dodbogi-render-d3d11" }
+dodbogi-effects = { path = "crates/dodbogi-effects" }
+dodbogi-input = { path = "crates/dodbogi-input" }
+dodbogi-parity = { path = "crates/dodbogi-parity" }
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Hlsl",
+    "Win32_System_Console",
+    "Win32_System_LibraryLoader",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_UI_Shell",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Magnification",
+    "Win32_UI_WindowsAndMessaging",
+    "Foundation",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+] }
+

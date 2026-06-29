@@ -1,0 +1,13 @@
+﻿target/
+.tools/
+.omx/
+.codex/
+.env
+*.log
+*.tmp
+*.bak
+
+# Local release/reference artifacts
+dodbogi.exe
+Dodbogi-v*-x64/
+Magpie-v*-x64/

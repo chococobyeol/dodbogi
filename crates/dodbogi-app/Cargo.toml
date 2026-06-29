@@ -1,0 +1,22 @@
+[package]
+name = "dodbogi-app"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "dodbogi"
+path = "src/main.rs"
+
+[dependencies]
+dodbogi-effects.workspace = true
+dodbogi-capture.workspace = true
+dodbogi-core.workspace = true
+dodbogi-input.workspace = true
+dodbogi-parity.workspace = true
+dodbogi-render-d3d11.workspace = true
+dodbogi-win32.workspace = true
+
+[build-dependencies]
+

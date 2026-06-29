@@ -1,0 +1,13 @@
+[package]
+name = "dodbogi-win32"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dodbogi-core.workspace = true
+dodbogi-input.workspace = true
+windows.workspace = true
+
+[lib]
+path = "src/lib.rs"
