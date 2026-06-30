@@ -393,6 +393,7 @@ impl ProfileMatchContext {
 pub struct AppProfile {
     pub id: String,
     pub display_name: String,
+    pub windowed_hotkey: String,
     pub match_rule: ProfileMatchRule,
     pub scaling_mode: ScalingMode,
     pub capture_method: CaptureMethod,
@@ -408,7 +409,8 @@ impl AppProfile {
     pub fn default_profile() -> Self {
         Self {
             id: "default".to_string(),
-            display_name: "Default profile".to_string(),
+            display_name: "기본 프로파일".to_string(),
+            windowed_hotkey: "Ctrl+Alt+Q".to_string(),
             match_rule: ProfileMatchRule::empty(),
             scaling_mode: ScalingMode::Windowed,
             capture_method: CaptureMethod::WindowsGraphicsCapture,
@@ -457,6 +459,30 @@ impl Default for ProfileSet {
 }
 
 impl ProfileSet {
+    pub fn active_profile(&self) -> &AppProfile {
+        if self.active_profile_id == self.default_profile.id {
+            return &self.default_profile;
+        }
+        self.per_app_profiles
+            .iter()
+            .find(|profile| profile.id == self.active_profile_id)
+            .unwrap_or(&self.default_profile)
+    }
+
+    pub fn active_profile_mut(&mut self) -> &mut AppProfile {
+        if self.active_profile_id == self.default_profile.id {
+            return &mut self.default_profile;
+        }
+        if let Some(index) = self
+            .per_app_profiles
+            .iter()
+            .position(|profile| profile.id == self.active_profile_id)
+        {
+            return &mut self.per_app_profiles[index];
+        }
+        &mut self.default_profile
+    }
+
     pub fn resolve<'a>(&'a self, context: &ProfileMatchContext) -> ProfileResolution<'a> {
         let mut best: Option<(&AppProfile, u32)> = None;
         for profile in &self.per_app_profiles {
@@ -539,6 +565,21 @@ impl Default for DiagnosticsConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiConfig {
+    pub language: String,
+    pub log_output_enabled: bool,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            language: "ko".to_string(),
+            log_output_enabled: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DistributionKind {
     PortableZip,
@@ -589,6 +630,7 @@ pub struct DodbogiSettings {
     pub profiles: ProfileSet,
     pub hotkeys: HotkeySettings,
     pub diagnostics: DiagnosticsConfig,
+    pub ui: UiConfig,
     pub packaging: PackagingPlan,
 }
 
@@ -599,6 +641,7 @@ impl Default for DodbogiSettings {
             profiles: ProfileSet::default(),
             hotkeys: HotkeySettings::default(),
             diagnostics: DiagnosticsConfig::default(),
+            ui: UiConfig::default(),
             packaging: PackagingPlan::default(),
         }
     }
@@ -635,6 +678,12 @@ impl DodbogiSettings {
         );
         push_kv_quoted(&mut output, "hotkey_screenshot", &self.hotkeys.screenshot);
         push_kv_quoted(&mut output, "log_level", &self.diagnostics.log_level);
+        push_kv_quoted(&mut output, "language", &self.ui.language);
+        push_kv(
+            &mut output,
+            "log_output_enabled",
+            bool_setting(self.ui.log_output_enabled),
+        );
         push_kv(
             &mut output,
             "enable_stats_overlay",
@@ -677,6 +726,7 @@ impl DodbogiSettings {
             output.push_str("\n[[profile]]\n");
             push_kv_quoted(&mut output, "id", &profile.id);
             push_kv_quoted(&mut output, "display_name", &profile.display_name);
+            push_kv_quoted(&mut output, "windowed_hotkey", &profile.windowed_hotkey);
             push_kv_quoted(
                 &mut output,
                 "executable_name",
@@ -999,6 +1049,8 @@ fn parse_global_key(
         "hotkey_open_settings" => settings.hotkeys.open_settings = unquote_setting(value),
         "hotkey_screenshot" => settings.hotkeys.screenshot = unquote_setting(value),
         "log_level" => settings.diagnostics.log_level = unquote_setting(value),
+        "language" => settings.ui.language = unquote_setting(value),
+        "log_output_enabled" => settings.ui.log_output_enabled = parse_bool(value, line)?,
         "enable_stats_overlay" => {
             settings.diagnostics.enable_stats_overlay = parse_bool(value, line)?
         }
@@ -1039,6 +1091,7 @@ fn parse_profile_key(
     match key {
         "id" => profile.id = unquote_setting(value),
         "display_name" => profile.display_name = unquote_setting(value),
+        "windowed_hotkey" => profile.windowed_hotkey = unquote_setting(value),
         "executable_name" => {
             profile.match_rule.executable_name = non_empty_string(unquote_setting(value))
         }
@@ -2157,6 +2210,9 @@ mod tests {
     fn settings_export_import_roundtrips_profiles_and_hotkeys() {
         let mut settings = DodbogiSettings::default();
         settings.hotkeys.windowed_toggle = "Ctrl+Shift+W".to_string();
+        settings.ui.language = "en".to_string();
+        settings.ui.log_output_enabled = true;
+        settings.profiles.default_profile.windowed_hotkey = "Ctrl+Alt+Z".to_string();
         settings.diagnostics.enable_stats_overlay = true;
         settings
             .profiles
@@ -2170,6 +2226,12 @@ mod tests {
         let raw = settings.to_toml_string();
         let parsed = DodbogiSettings::from_toml_str(&raw).expect("settings should parse");
         assert_eq!(parsed.hotkeys.windowed_toggle, "Ctrl+Shift+W");
+        assert_eq!(parsed.ui.language, "en");
+        assert!(parsed.ui.log_output_enabled);
+        assert_eq!(
+            parsed.profiles.default_profile.windowed_hotkey,
+            "Ctrl+Alt+Z"
+        );
         assert!(parsed.diagnostics.enable_stats_overlay);
         assert_eq!(parsed.profiles.per_app_profiles.len(), 1);
         assert_eq!(

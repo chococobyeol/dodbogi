@@ -13,6 +13,7 @@ dependencies = [
  "dodbogi-parity",
  "dodbogi-render-d3d11",
  "dodbogi-win32",
+ "windows",
 ]
 
 [[package]]

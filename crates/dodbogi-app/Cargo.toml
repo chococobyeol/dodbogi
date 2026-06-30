@@ -17,6 +17,7 @@ dodbogi-input.workspace = true
 dodbogi-parity.workspace = true
 dodbogi-render-d3d11.workspace = true
 dodbogi-win32.workspace = true
+windows.workspace = true
 
 [build-dependencies]
 

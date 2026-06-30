@@ -4,8 +4,8 @@
 //! any optional WinUI 3 shell fallback.
 
 use dodbogi_core::{
-    CheckStatus, Dpi, MonitorGeometry, PhysicalRect, SourceWindow, StartupCheck, StartupReport,
-    SupportEnvelope, PARITY_TARGET,
+    CheckStatus, DodbogiSettings, Dpi, MonitorGeometry, PhysicalRect, SourceWindow, StartupCheck,
+    StartupReport, SupportEnvelope, PARITY_TARGET,
 };
 use dodbogi_input::{InputEventKind, SourceInputEvent};
 
@@ -43,21 +43,41 @@ fn adjusted_mouse_speed(origin_speed: i32, scale: f64, acceleration_on: bool) ->
 pub struct HotkeySpec {
     pub id: u32,
     pub name: &'static str,
-    pub accelerator: &'static str,
+    pub accelerator: String,
 }
 
-pub const DEFAULT_HOTKEYS: &[HotkeySpec] = &[
-    HotkeySpec {
-        id: 1,
-        name: "windowed-scale-toggle",
-        accelerator: "Ctrl+Alt+Q",
-    },
-    HotkeySpec {
-        id: 2,
-        name: "fullscreen-scale-toggle",
-        accelerator: "Ctrl+Alt+A",
-    },
-];
+pub const DEFAULT_WINDOWED_HOTKEY: &str = "Ctrl+Alt+Q";
+pub const DEFAULT_FULLSCREEN_HOTKEY: &str = "Ctrl+Alt+A";
+
+pub fn default_hotkeys() -> Vec<HotkeySpec> {
+    vec![
+        HotkeySpec {
+            id: 1,
+            name: "windowed-scale-toggle",
+            accelerator: DEFAULT_WINDOWED_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 2,
+            name: "fullscreen-scale-toggle",
+            accelerator: DEFAULT_FULLSCREEN_HOTKEY.to_string(),
+        },
+    ]
+}
+
+pub fn hotkeys_from_settings(settings: &DodbogiSettings) -> Vec<HotkeySpec> {
+    vec![
+        HotkeySpec {
+            id: 1,
+            name: "windowed-scale-toggle",
+            accelerator: settings.hotkeys.windowed_toggle.clone(),
+        },
+        HotkeySpec {
+            id: 2,
+            name: "fullscreen-scale-toggle",
+            accelerator: settings.hotkeys.fullscreen_toggle.clone(),
+        },
+    ]
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemHotkeyRegistration {
@@ -110,7 +130,7 @@ pub struct HotkeyRegistry {
 
 impl HotkeyRegistry {
     pub fn register_defaults(&mut self) {
-        self.registered = DEFAULT_HOTKEYS.to_vec();
+        self.registered = default_hotkeys();
     }
 
     pub fn unregister_all(&mut self) {
@@ -316,12 +336,13 @@ pub struct OverlayStyleContract {
 #[cfg(windows)]
 mod imp {
     use super::{
-        default_tray_menu_items, input_event_kind_name, ControlledInputProbeReport,
-        CursorCaptureReport, Dpi, HotkeySpec, InputDeliveryMode, InputDeliveryReport,
-        MonitorGeometry, OverlayStyleContract, PhysicalRect, ShellMessage, SourceInputEvent,
-        SourceWindow, SystemHotkeyRegistration, SystemHotkeyReport, TrayMenuItem, Win32Error,
-        DEFAULT_HOTKEYS,
+        default_hotkeys, default_tray_menu_items, hotkeys_from_settings, input_event_kind_name,
+        ControlledInputProbeReport, CursorCaptureReport, Dpi, HotkeySpec, InputDeliveryMode,
+        InputDeliveryReport, MonitorGeometry, OverlayStyleContract, PhysicalRect, ShellMessage,
+        SourceInputEvent, SourceWindow, SystemHotkeyRegistration, SystemHotkeyReport, TrayMenuItem,
+        Win32Error,
     };
+    use dodbogi_core::DodbogiSettings;
     use dodbogi_input::{
         DragPhase, InputEventKind, InputTransform, MouseButton, OverlayPoint, SourcePoint,
         TextSelectionPhase,
@@ -379,12 +400,12 @@ mod imp {
             UI::{
                 HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
                 Input::KeyboardAndMouse::{
-                    RegisterHotKey, SendInput, UnregisterHotKey, INPUT, INPUT_0, INPUT_KEYBOARD,
-                    INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT,
-                    MOD_CONTROL, MOD_NOREPEAT, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-                    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
-                    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
-                    VIRTUAL_KEY, VK_A, VK_Q,
+                    RegisterHotKey, SendInput, UnregisterHotKey, HOT_KEY_MODIFIERS, INPUT, INPUT_0,
+                    INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+                    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, MOUSEEVENTF_LEFTDOWN,
+                    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
+                    MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+                    MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
                 },
                 Magnification::{MagInitialize, MagShowSystemCursor},
                 Shell::{
@@ -398,19 +419,20 @@ mod imp {
                     GetGUIThreadInfo, GetIconInfo, GetWindowRect, GetWindowThreadProcessId,
                     IsWindow, IsWindowVisible, LoadCursorW, LoadIconW, PeekMessageW, PostMessageW,
                     RegisterClassW, SetCursorPos, SetForegroundWindow, SetLayeredWindowAttributes,
-                    SetWindowPos, ShowCursor, SystemParametersInfoW, TranslateMessage,
-                    WindowFromPoint, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CURSORINFO, DI_NORMAL,
-                    GUITHREADINFO, GUI_INMOVESIZE, HICON, HTCLIENT, HTTRANSPARENT, HWND_MESSAGE,
-                    HWND_TOPMOST, ICONINFO, IDC_ARROW, IDI_APPLICATION, LWA_ALPHA, LWA_COLORKEY,
-                    MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED, PM_REMOVE, SPI_GETMOUSE,
-                    SPI_GETMOUSESPEED, SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_HIDEWINDOW,
-                    SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER,
-                    SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP, WM_COMMAND,
+                    SetWindowLongPtrW, SetWindowPos, ShowCursor, SystemParametersInfoW,
+                    TranslateMessage, WindowFromPoint, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW,
+                    CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE, GWLP_HWNDPARENT, HICON,
+                    HTCLIENT, HTTRANSPARENT, HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW,
+                    IDI_APPLICATION, LWA_ALPHA, LWA_COLORKEY, MF_CHECKED, MF_GRAYED, MF_STRING,
+                    MF_UNCHECKED, PM_REMOVE, SPI_GETMOUSE, SPI_GETMOUSESPEED, SPI_SETCURSORS,
+                    SPI_SETMOUSESPEED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE,
+                    SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+                    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP, WM_COMMAND, WM_CONTEXTMENU,
                     WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
                     WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
                     WM_NCHITTEST, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
-                    WM_RBUTTONUP, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-                    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+                    WM_RBUTTONUP, WM_SETCURSOR, WM_USER, WNDCLASSW, WS_EX_LAYERED,
+                    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
@@ -519,20 +541,99 @@ mod imp {
         hwnd.0.is_null()
     }
 
-    fn hotkey_vk(spec: &HotkeySpec) -> Option<u32> {
-        match spec.id {
-            1 => Some(VK_Q.0 as u32),
-            2 => Some(VK_A.0 as u32),
+    fn parse_hotkey_accelerator(accelerator: &str) -> Option<(HOT_KEY_MODIFIERS, u32)> {
+        let mut modifiers = MOD_NOREPEAT;
+        let mut vk = None;
+        for part in accelerator
+            .split('+')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+        {
+            if part.eq_ignore_ascii_case("ctrl") || part.eq_ignore_ascii_case("control") {
+                modifiers |= MOD_CONTROL;
+            } else if part.eq_ignore_ascii_case("alt") {
+                modifiers |= MOD_ALT;
+            } else if part.eq_ignore_ascii_case("shift") {
+                modifiers |= MOD_SHIFT;
+            } else if part.eq_ignore_ascii_case("win") || part.eq_ignore_ascii_case("windows") {
+                modifiers |= MOD_WIN;
+            } else {
+                vk = virtual_key_from_label(part);
+            }
+        }
+        vk.map(|vk| (modifiers, vk))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parse_hotkey_accelerator_for_test(accelerator: &str) -> Option<(u32, u32)> {
+        parse_hotkey_accelerator(accelerator).map(|(modifiers, vk)| (modifiers.0, vk))
+    }
+
+    fn virtual_key_from_label(label: &str) -> Option<u32> {
+        let upper = label.trim().to_ascii_uppercase();
+        let mut chars = upper.chars();
+        let first = chars.next()?;
+        if chars.next().is_none() && (first.is_ascii_uppercase() || first.is_ascii_digit()) {
+            return Some(first as u32);
+        }
+        match upper.as_str() {
+            "F1" => Some(0x70),
+            "F2" => Some(0x71),
+            "F3" => Some(0x72),
+            "F4" => Some(0x73),
+            "F5" => Some(0x74),
+            "F6" => Some(0x75),
+            "F7" => Some(0x76),
+            "F8" => Some(0x77),
+            "F9" => Some(0x78),
+            "F10" => Some(0x79),
+            "F11" => Some(0x7A),
+            "F12" => Some(0x7B),
+            "F13" => Some(0x7C),
+            "F14" => Some(0x7D),
+            "F15" => Some(0x7E),
+            "F16" => Some(0x7F),
+            "F17" => Some(0x80),
+            "F18" => Some(0x81),
+            "F19" => Some(0x82),
+            "F20" => Some(0x83),
+            "F21" => Some(0x84),
+            "F22" => Some(0x85),
+            "F23" => Some(0x86),
+            "F24" => Some(0x87),
+            "NUM0" => Some(0x60),
+            "NUM1" => Some(0x61),
+            "NUM2" => Some(0x62),
+            "NUM3" => Some(0x63),
+            "NUM4" => Some(0x64),
+            "NUM5" => Some(0x65),
+            "NUM6" => Some(0x66),
+            "NUM7" => Some(0x67),
+            "NUM8" => Some(0x68),
+            "NUM9" => Some(0x69),
+            "BACKSPACE" => Some(0x08),
+            "TAB" => Some(0x09),
+            "SPACE" => Some(0x20),
+            "PAGEUP" | "PGUP" => Some(0x21),
+            "PAGEDOWN" | "PGDN" => Some(0x22),
+            "END" => Some(0x23),
+            "HOME" => Some(0x24),
+            "LEFT" => Some(0x25),
+            "UP" => Some(0x26),
+            "RIGHT" => Some(0x27),
+            "DOWN" => Some(0x28),
+            "INSERT" | "INS" => Some(0x2D),
+            "DELETE" | "DEL" => Some(0x2E),
             _ => None,
         }
     }
 
     fn hotkey_name(id: u32) -> &'static str {
-        DEFAULT_HOTKEYS
-            .iter()
-            .find(|spec| spec.id == id)
-            .map(|spec| spec.name)
-            .unwrap_or("unknown")
+        match id {
+            1 => "windowed-scale-toggle",
+            2 => "fullscreen-scale-toggle",
+            _ => "unknown",
+        }
     }
 
     fn wide_null(value: &str) -> Vec<u16> {
@@ -826,16 +927,34 @@ mod imp {
 
     impl SystemHotkeyGuard {
         pub fn register_defaults() -> Self {
-            let modifiers = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
+            Self::register_specs(default_hotkeys())
+        }
+
+        pub fn register_from_settings(settings: &DodbogiSettings) -> Self {
+            Self::register_specs(hotkeys_from_settings(settings))
+        }
+
+        pub fn replace_from_settings(&mut self, settings: &DodbogiSettings) {
+            self.unregister_all();
+            *self = Self::register_from_settings(settings);
+        }
+
+        fn unregister_all(&mut self) {
+            for id in self.registered_ids.drain(..) {
+                let _ = unsafe { UnregisterHotKey(None, id) };
+            }
+        }
+
+        fn register_specs(specs: Vec<HotkeySpec>) -> Self {
             let mut registered_ids = Vec::new();
             let mut registrations = Vec::new();
 
-            for spec in DEFAULT_HOTKEYS {
-                let Some(vk) = hotkey_vk(spec) else {
+            for spec in specs {
+                let Some((modifiers, vk)) = parse_hotkey_accelerator(&spec.accelerator) else {
                     registrations.push(SystemHotkeyRegistration {
-                        spec: spec.clone(),
+                        spec,
                         registered: false,
-                        detail: "no virtual-key mapping for hotkey spec".to_string(),
+                        detail: "no virtual-key mapping for hotkey accelerator".to_string(),
                     });
                     continue;
                 };
@@ -844,13 +963,13 @@ mod imp {
                     Ok(()) => {
                         registered_ids.push(spec.id as i32);
                         registrations.push(SystemHotkeyRegistration {
-                            spec: spec.clone(),
+                            spec,
                             registered: true,
-                            detail: "RegisterHotKey succeeded for Ctrl+Alt accelerator".to_string(),
+                            detail: "RegisterHotKey succeeded".to_string(),
                         });
                     }
                     Err(error) => registrations.push(SystemHotkeyRegistration {
-                        spec: spec.clone(),
+                        spec,
                         registered: false,
                         detail: format!("RegisterHotKey failed: {error:?}"),
                     }),
@@ -870,9 +989,7 @@ mod imp {
 
     impl Drop for SystemHotkeyGuard {
         fn drop(&mut self) {
-            for id in self.registered_ids.drain(..) {
-                let _ = unsafe { UnregisterHotKey(None, id) };
-            }
+            self.unregister_all();
         }
     }
 
@@ -917,11 +1034,7 @@ mod imp {
 
             let hwnd = unsafe {
                 CreateWindowExW(
-                    WS_EX_NOACTIVATE
-                        | WS_EX_TOOLWINDOW
-                        | WS_EX_TOPMOST
-                        | WS_EX_LAYERED
-                        | WS_EX_TRANSPARENT,
+                    WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT,
                     class_name,
                     windows::core::w!("Dodbogi Scaling Overlay"),
                     WS_POPUP,
@@ -950,6 +1063,29 @@ mod imp {
             hwnd_to_raw(self.hwnd)
         }
 
+        pub fn attach_to_source(&self, source_hwnd: isize) -> Result<(), Win32Error> {
+            let source = HWND(source_hwnd as *mut _);
+            if is_null_hwnd(source) {
+                return Err(Win32Error::InvalidWindow);
+            }
+            unsafe {
+                SetWindowLongPtrW(self.hwnd, GWLP_HWNDPARENT, source_hwnd);
+                SetWindowPos(
+                    self.hwnd,
+                    Some(HWND_TOP),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOSENDCHANGING | SWP_NOSIZE,
+                )
+            }
+            .map_err(|error| {
+                Win32Error::Api(format!("SetWindowPos owner order failed: {error:?}"))
+            })?;
+            Ok(())
+        }
+
         pub fn apply_layout(
             &self,
             rect: PhysicalRect,
@@ -961,11 +1097,12 @@ mod imp {
             let flags = SWP_NOACTIVATE
                 | SWP_NOCOPYBITS
                 | SWP_NOSENDCHANGING
+                | SWP_NOZORDER
                 | if show { SWP_SHOWWINDOW } else { SWP_HIDEWINDOW };
             unsafe {
                 SetWindowPos(
                     self.hwnd,
-                    Some(windows::Win32::UI::WindowsAndMessaging::HWND_TOPMOST),
+                    None,
                     rect.left,
                     rect.top,
                     rect.width(),
@@ -980,7 +1117,7 @@ mod imp {
         pub fn style_contract() -> OverlayStyleContract {
             OverlayStyleContract {
                 no_activate: true,
-                topmost: true,
+                topmost: false,
                 tool_window: true,
                 input_passthrough: true,
                 layered_passthrough: true,
@@ -1139,6 +1276,7 @@ mod imp {
 
     struct CursorOverlayWindow {
         hwnd: HWND,
+        owner_hwnd: Option<isize>,
     }
 
     impl CursorOverlayWindow {
@@ -1177,11 +1315,7 @@ mod imp {
 
             let hwnd = unsafe {
                 CreateWindowExW(
-                    WS_EX_NOACTIVATE
-                        | WS_EX_TOOLWINDOW
-                        | WS_EX_TOPMOST
-                        | WS_EX_LAYERED
-                        | WS_EX_TRANSPARENT,
+                    WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT,
                     class_name,
                     windows::core::w!("Dodbogi Cursor Overlay"),
                     WS_POPUP,
@@ -1204,7 +1338,37 @@ mod imp {
                     Win32Error::Api(format!("SetLayeredWindowAttributes failed: {error:?}"))
                 })?;
 
-            Ok(Self { hwnd })
+            Ok(Self {
+                hwnd,
+                owner_hwnd: None,
+            })
+        }
+
+        fn attach_to_source(&mut self, source_hwnd: isize) -> Result<(), Win32Error> {
+            if self.owner_hwnd == Some(source_hwnd) {
+                return Ok(());
+            }
+            let source = HWND(source_hwnd as *mut _);
+            if is_null_hwnd(source) {
+                return Err(Win32Error::InvalidWindow);
+            }
+            unsafe {
+                SetWindowLongPtrW(self.hwnd, GWLP_HWNDPARENT, source_hwnd);
+                SetWindowPos(
+                    self.hwnd,
+                    Some(HWND_TOP),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOSENDCHANGING | SWP_NOMOVE | SWP_NOSIZE,
+                )
+            }
+            .map_err(|error| {
+                Win32Error::Api(format!("SetWindowPos cursor owner order failed: {error:?}"))
+            })?;
+            self.owner_hwnd = Some(source_hwnd);
+            Ok(())
         }
 
         fn show_at_cursor(&self, x: i32, y: i32) -> Result<(), Win32Error> {
@@ -1218,12 +1382,16 @@ mod imp {
             unsafe {
                 SetWindowPos(
                     self.hwnd,
-                    Some(HWND_TOPMOST),
+                    None,
                     left,
                     top,
                     CURSOR_OVERLAY_SIZE,
                     CURSOR_OVERLAY_SIZE,
-                    SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOSENDCHANGING | SWP_SHOWWINDOW,
+                    SWP_NOACTIVATE
+                        | SWP_NOCOPYBITS
+                        | SWP_NOSENDCHANGING
+                        | SWP_NOZORDER
+                        | SWP_SHOWWINDOW,
                 )
             }
             .map_err(|error| Win32Error::Api(format!("SetWindowPos cursor failed: {error:?}")))?;
@@ -1241,7 +1409,11 @@ mod imp {
                     0,
                     0,
                     0,
-                    SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOSENDCHANGING | SWP_HIDEWINDOW,
+                    SWP_NOACTIVATE
+                        | SWP_NOCOPYBITS
+                        | SWP_NOSENDCHANGING
+                        | SWP_NOZORDER
+                        | SWP_HIDEWINDOW,
                 )
             };
         }
@@ -1293,6 +1465,7 @@ mod imp {
             let mut hardware = POINT::default();
             unsafe { GetCursorPos(&mut hardware) }
                 .map_err(|error| Win32Error::Api(format!("GetCursorPos failed: {error:?}")))?;
+            self.cursor_overlay.attach_to_source(target_hwnd)?;
 
             let source_capture_active = source_foreground_capture_active(target_hwnd);
             let move_size_active = is_foreground_move_size_active();
@@ -1691,6 +1864,8 @@ mod imp {
 
     const TRAY_ICON_ID: u32 = 1;
     const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 1;
+    const NIN_SELECT: u32 = WM_USER;
+    const NIN_KEYSELECT: u32 = WM_USER + 1;
 
     #[derive(Debug)]
     pub struct ShellTrayIcon {
@@ -1764,7 +1939,7 @@ mod imp {
                     0,
                     0,
                     0,
-                    Some(HWND_MESSAGE),
+                    None,
                     None,
                     Some(HINSTANCE(instance.0)),
                     None,
@@ -1904,7 +2079,16 @@ mod imp {
                         return None;
                     }
                     let mouse_message = msg.lParam.0 as u32;
-                    if mouse_message == WM_RBUTTONUP || mouse_message == WM_LBUTTONUP {
+                    if mouse_message == WM_LBUTTONUP
+                        || mouse_message == WM_LBUTTONDBLCLK
+                        || mouse_message == NIN_SELECT
+                        || mouse_message == NIN_KEYSELECT
+                    {
+                        return Some(ShellMessage::TrayMenu {
+                            item_id: "settings",
+                        });
+                    }
+                    if mouse_message == WM_RBUTTONUP || mouse_message == WM_CONTEXTMENU {
                         return match self.show_context_menu_at_cursor() {
                             Ok(Some(item_id)) => Some(ShellMessage::TrayMenu { item_id }),
                             Ok(None) => None,
@@ -2513,6 +2697,10 @@ mod imp {
             0
         }
 
+        pub fn attach_to_source(&self, _source_hwnd: isize) -> Result<(), Win32Error> {
+            Err(Win32Error::NotImplemented("Windows-only"))
+        }
+
         pub fn apply_layout(
             &self,
             _rect: PhysicalRect,
@@ -2524,7 +2712,7 @@ mod imp {
         pub fn style_contract() -> OverlayStyleContract {
             OverlayStyleContract {
                 no_activate: true,
-                topmost: true,
+                topmost: false,
                 tool_window: true,
                 input_passthrough: true,
                 layered_passthrough: true,
@@ -2675,17 +2863,34 @@ mod tests {
         assert!(registry.registered().is_empty());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn dynamic_hotkey_parser_accepts_user_selected_modifier_sets() {
+        let (mods, vk) =
+            imp::parse_hotkey_accelerator_for_test("Shift+F9").expect("Shift+F9 should parse");
+        assert_eq!(vk, 0x78);
+        assert_eq!(mods & 0x0004, 0x0004);
+        assert_eq!(mods & 0x0002, 0, "Ctrl must not be forced");
+        assert_eq!(mods & 0x0001, 0, "Alt must not be forced");
+
+        let (mods, vk) =
+            imp::parse_hotkey_accelerator_for_test("Win+Space").expect("Win+Space should parse");
+        assert_eq!(vk, 0x20);
+        assert_eq!(mods & 0x0008, 0x0008);
+    }
+
     #[test]
     fn system_hotkey_report_counts_successes_and_failures() {
+        let defaults = default_hotkeys();
         let report = SystemHotkeyReport {
             registrations: vec![
                 SystemHotkeyRegistration {
-                    spec: DEFAULT_HOTKEYS[0].clone(),
+                    spec: defaults[0].clone(),
                     registered: true,
                     detail: "ok".to_string(),
                 },
                 SystemHotkeyRegistration {
-                    spec: DEFAULT_HOTKEYS[1].clone(),
+                    spec: defaults[1].clone(),
                     registered: false,
                     detail: "conflict".to_string(),
                 },
@@ -2713,10 +2918,10 @@ mod tests {
     }
 
     #[test]
-    fn overlay_style_contract_is_topmost_noactivate_and_input_passthrough() {
+    fn overlay_style_contract_is_noactivate_not_topmost_and_input_passthrough() {
         let style = OverlayWindow::style_contract();
         assert!(style.no_activate);
-        assert!(style.topmost);
+        assert!(!style.topmost);
         assert!(style.tool_window);
         assert!(style.input_passthrough);
         assert!(style.layered_passthrough);
