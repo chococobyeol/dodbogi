@@ -886,7 +886,10 @@ fn handle_runtime_message(
                     .map(|window| window.is_foreground())
                     .unwrap_or(false)
             {
-                append_log_line(&paths.log_file, "runtime_hotkey_ignored settings_window_foreground")?;
+                append_log_line(
+                    &paths.log_file,
+                    "runtime_hotkey_ignored settings_window_foreground",
+                )?;
                 runtime_println!(
                     runtime_output,
                     "Hotkey ignored while settings window is foreground."
@@ -1015,6 +1018,7 @@ fn handle_runtime_message(
             Ok(false)
         }
         ShellMessage::TrayMenu { item_id: "exit" } | ShellMessage::Quit => Ok(true),
+        ShellMessage::TrayCallback { .. } => Ok(false),
         ShellMessage::OverlayInput {
             hwnd,
             kind,
@@ -1073,7 +1077,8 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut tray = TrayController::default();
     tray.install_placeholder();
-    let system_tray = ShellTrayIcon::install_default();
+    let app_icon_path = settings_ui::ensure_app_icon_file(&paths).ok();
+    let system_tray = ShellTrayIcon::install_default_with_icon_path(app_icon_path.as_deref());
     let (system_tray_installed, system_tray_menu_probe, system_tray_detail) = match &system_tray {
         Ok(icon) => (
             icon.is_installed(),
@@ -1234,6 +1239,14 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 settings_ui::SettingsUiEvent::ProfileChanged => {
                     let settings = load_settings_from_path(&paths.settings_file)?;
                     runtime_output.set_enabled(settings.ui.log_output_enabled, &paths.log_file);
+                    if let Some(stop) = controller.stop_with_reason(StopReason::SettingsChanged) {
+                        let detail = format!(
+                            "settings_ui_profile_change_stopped_active_scaling source={} presented_frames={} reason={:?}",
+                            stop.source_hwnd, stop.presented_frames, stop.reason
+                        );
+                        append_log_line(&paths.log_file, &detail)?;
+                        runtime_println!(runtime_output, "{detail}");
+                    }
                     if let Some(detail) =
                         controller.apply_runtime_profile(active_runtime_profile(&settings))?
                     {
@@ -1261,7 +1274,14 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 settings_ui::SettingsUiEvent::WindowHiddenToTray => {
                     append_log_line(&paths.log_file, "settings_window_hidden_to_tray")?;
                 }
+                settings_ui::SettingsUiEvent::WindowCloseRequested => {
+                    append_log_line(&paths.log_file, "settings_window_close_requested_exit")?;
+                    should_exit = true;
+                }
             }
+        }
+        if should_exit {
+            break;
         }
 
         if controller.is_active() {

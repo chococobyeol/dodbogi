@@ -1605,6 +1605,7 @@ fn anchored_axis(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
     UserToggle,
+    SettingsChanged,
     SourceClosed,
     SourceMinimized,
     Error,

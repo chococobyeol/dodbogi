@@ -5,7 +5,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicIsize, Ordering},
         Mutex, OnceLock,
     },
 };
@@ -16,36 +16,40 @@ use windows::{
             GetLastError, COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
         },
         Graphics::Gdi::{
-            AddFontMemResourceEx, BeginPaint, CreateFontW, CreatePen, CreateSolidBrush,
-            DeleteObject, EndPaint, FillRect, GetStockObject, InvalidateRect, Rectangle,
-            RedrawWindow, RoundRect, SelectObject, SetBkMode, SetTextColor, TextOutW,
-            CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_GUI_FONT, DEFAULT_PITCH, DEFAULT_QUALITY,
-            HBRUSH, HDC, HGDIOBJ, HOLLOW_BRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID,
-            RDW_INVALIDATE, TRANSPARENT, WHITE_BRUSH,
+            AddFontMemResourceEx, BeginPaint, ClientToScreen, CreateFontW, CreatePen,
+            CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject,
+            InvalidateRect, Rectangle, RedrawWindow, RoundRect, SelectObject, SetBkMode,
+            SetTextColor, TextOutW, UpdateWindow, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET,
+            DEFAULT_GUI_FONT, DEFAULT_PITCH, DEFAULT_QUALITY, DT_END_ELLIPSIS, DT_LEFT,
+            DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HBRUSH, HDC, HGDIOBJ, HOLLOW_BRUSH,
+            OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE,
+            RDW_UPDATENOW, TRANSPARENT, WHITE_BRUSH,
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::{
             Input::KeyboardAndMouse::{
-                EnableWindow, GetAsyncKeyState, GetFocus, GetKeyState, SetFocus, VK_CONTROL, VK_LWIN,
-                VK_MENU, VK_RWIN, VK_SHIFT,
+                EnableWindow, GetAsyncKeyState, GetFocus, GetKeyState, SetFocus, TrackMouseEvent,
+                TME_LEAVE, TRACKMOUSEEVENT, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
             },
             WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, GetClientRect, GetDlgCtrlID, GetDlgItem,
-                GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, KillTimer,
-                LoadCursorW, LoadImageW, IsWindowVisible, MessageBoxW, RegisterClassW,
-                SendMessageW, SetForegroundWindow, SetTimer, SetWindowPos, SetWindowTextW,
-                ShowWindow, BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, CS_DBLCLKS,
-                CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, EN_CHANGE, EN_KILLFOCUS, ES_AUTOHSCROLL,
-                ES_AUTOVSCROLL, ES_MULTILINE, ES_READONLY, HMENU, HWND_TOP, IDC_ARROW, IDYES,
-                IMAGE_BITMAP, LBN_DBLCLK, LBN_SELCHANGE, LBS_NOTIFY, LB_ADDSTRING, LB_GETCURSEL,
-                LB_RESETCONTENT, LB_SETCURSEL, LR_LOADFROMFILE,
-                MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_YESNO, MINMAXINFO, SET_WINDOW_POS_FLAGS,
-                STM_SETIMAGE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-                SW_HIDE, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND,
+                CallWindowProcW, CreateWindowExW, DefWindowProcW, GetClientRect, GetCursorPos,
+                GetDlgCtrlID, GetDlgItem, GetForegroundWindow, GetParent, GetWindowRect,
+                GetWindowTextLengthW, GetWindowTextW, IsWindowVisible, KillTimer, LoadCursorW,
+                LoadImageW, MessageBoxW, RegisterClassW, SendMessageW, SetForegroundWindow,
+                SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, BM_GETCHECK,
+                BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW,
+                CW_USEDEFAULT, EN_CHANGE, EN_KILLFOCUS, ES_AUTOHSCROLL, ES_AUTOVSCROLL,
+                ES_MULTILINE, ES_READONLY, GWLP_WNDPROC, HMENU, HWND_TOP, IDC_ARROW, IDYES,
+                IMAGE_BITMAP, IMAGE_ICON, LBN_DBLCLK, LBN_SELCHANGE, LBS_NOTIFY, LB_ADDSTRING,
+                LB_GETCURSEL, LB_RESETCONTENT, LB_SETCURSEL, LR_LOADFROMFILE, MB_ICONERROR,
+                MB_ICONQUESTION, MB_OK, MB_YESNO, MINMAXINFO, SET_WINDOW_POS_FLAGS, STM_SETIMAGE,
+                SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE,
+                SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND,
                 WM_CREATE, WM_CTLCOLORSTATIC, WM_DESTROY, WM_ERASEBKGND, WM_GETMINMAXINFO,
-                WM_KEYDOWN, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SIZE, WM_SYSKEYDOWN, WM_TIMER,
-                WNDCLASSW, WS_BORDER, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
-                WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+                WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE,
+                WM_NCLBUTTONDOWN, WM_PAINT, WM_PARENTNOTIFY, WM_SETFONT, WM_SETICON, WM_SIZE,
+                WM_SYSKEYDOWN, WM_TIMER, WNDCLASSW, WNDPROC, WS_BORDER, WS_CHILD, WS_CLIPCHILDREN,
+                WS_CLIPSIBLINGS, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
             },
         },
     },
@@ -59,6 +63,7 @@ const HOTKEY_ICON_BMP: &[u8] = include_bytes!("../assets/icons/40/hotkey.bmp");
 const SCALE_ICON_BMP: &[u8] = include_bytes!("../assets/icons/40/scale.bmp");
 const SETTINGS_ICON_BMP: &[u8] = include_bytes!("../assets/icons/24/settings.bmp");
 const TRAY_ICON_BMP: &[u8] = include_bytes!("../assets/icons/24/minimize-to-tray.bmp");
+const APP_ICON_ICO: &[u8] = include_bytes!("../assets/icons/app.ico");
 const UI_FONT_TTF: &[u8] = include_bytes!("../assets/fonts/NeoDunggeunmoPro-Regular.ttf");
 const UI_FONT_FACE: &str = "NeoDunggeunmo Pro";
 const ROW_ICON_SIZE: i32 = 40;
@@ -70,12 +75,19 @@ const LBS_HASSTRINGS_STYLE: i32 = 0x0040;
 const LBS_NOINTEGRALHEIGHT_STYLE: i32 = 0x0100;
 const WM_DRAWITEM_MSG: u32 = 0x002B;
 const WM_MEASUREITEM_MSG: u32 = 0x002C;
+const WM_MOUSELEAVE_MSG: u32 = 0x02A3;
 const LB_GETTEXT_MSG: u32 = 0x0189;
 const LB_SETTOPINDEX_MSG: u32 = 0x0197;
+const LB_GETITEMRECT_MSG: u32 = 0x0198;
 const ODS_SELECTED_FLAG: u32 = 0x0001;
 const ODS_DISABLED_FLAG: u32 = 0x0004;
 const UI_STROKE_WIDTH: i32 = 2;
 const UI_RADIUS: i32 = 8;
+const PROFILE_DELETE_W: i32 = 18;
+const PROFILE_DELETE_GAP: i32 = 2;
+const PROFILE_DELETE_RIGHT_PAD: i32 = 3;
+const ICON_SMALL_WPARAM: usize = 0;
+const ICON_BIG_WPARAM: usize = 1;
 
 const ID_PROFILE_LIST: i32 = 1001;
 const ID_ADD_PROFILE: i32 = 1002;
@@ -147,6 +159,7 @@ pub enum SettingsUiEvent {
     ProfileChanged,
     GlobalSettingsChanged,
     WindowHiddenToTray,
+    WindowCloseRequested,
 }
 
 #[derive(Debug)]
@@ -171,12 +184,11 @@ impl SettingsUiWindow {
                     0,
                     0,
                     0,
-                    SET_WINDOW_POS_FLAGS(
-                        SWP_NOMOVE.0 | SWP_NOSIZE.0 | SWP_NOACTIVATE.0 | SWP_SHOWWINDOW.0,
-                    ),
+                    SET_WINDOW_POS_FLAGS(SWP_NOMOVE.0 | SWP_NOSIZE.0 | SWP_SHOWWINDOW.0),
                 );
                 let _ = SetForegroundWindow(hwnd);
                 let _ = SetFocus(Some(hwnd));
+                let _ = UpdateWindow(hwnd);
             }
             return Ok(Self { hwnd: state.hwnd });
         }
@@ -230,6 +242,8 @@ impl SettingsUiWindow {
             state.hwnd = raw_from_hwnd(hwnd);
             state.icon_dir.clone()
         };
+        let app_icon_path = icon_dir.join("app.ico");
+        apply_window_icon(hwnd, &app_icon_path);
         create_controls(hwnd, &icon_dir)?;
         unsafe {
             let _ = SetTimer(Some(hwnd), ID_LIVE_APPLY_TIMER, 60, None);
@@ -363,6 +377,9 @@ struct SettingsUiState {
     hotkey_panel_visible: bool,
     language_menu_visible: bool,
     pending_hotkey: Option<String>,
+    pending_profile_name: Option<String>,
+    hovered_profile_index: Option<usize>,
+    pressed_delete_profile_index: Option<usize>,
     rename_enter_down: bool,
     rename_escape_down: bool,
 }
@@ -385,6 +402,9 @@ impl SettingsUiState {
             hotkey_panel_visible: false,
             language_menu_visible: false,
             pending_hotkey: None,
+            pending_profile_name: None,
+            hovered_profile_index: None,
+            pressed_delete_profile_index: None,
             rename_enter_down: false,
             rename_escape_down: false,
         }
@@ -395,6 +415,7 @@ static SETTINGS_UI_STATE: OnceLock<Mutex<Option<SettingsUiState>>> = OnceLock::n
 static SETTINGS_UI_EVENTS: OnceLock<Mutex<Vec<SettingsUiEvent>>> = OnceLock::new();
 static SETTINGS_PANEL_PAINT_VISIBLE: AtomicBool = AtomicBool::new(false);
 static HOTKEY_PANEL_PAINT_VISIBLE: AtomicBool = AtomicBool::new(false);
+static PROFILE_LIST_ORIGINAL_PROC: AtomicIsize = AtomicIsize::new(0);
 static LOG_OUTPUT_STATE: OnceLock<Mutex<Option<LogOutputState>>> = OnceLock::new();
 
 fn state_slot() -> &'static Mutex<Option<SettingsUiState>> {
@@ -412,8 +433,8 @@ fn log_slot() -> &'static Mutex<Option<LogOutputState>> {
 fn ui_text(lang: &str, key: UiString) -> &'static str {
     let english = lang.eq_ignore_ascii_case("en");
     match (english, key) {
-        (true, UiString::WindowTitle) => "Dodbogi Settings",
-        (false, UiString::WindowTitle) => "Dodbogi 설정",
+        (true, UiString::WindowTitle) => "Dodbogi",
+        (false, UiString::WindowTitle) => "Dodbogi",
         (true, UiString::Profiles) => "Profiles",
         (false, UiString::Profiles) => "프로파일",
         (true, UiString::Hotkey) => "Hotkey",
@@ -451,6 +472,19 @@ fn ui_text(lang: &str, key: UiString) -> &'static str {
     }
 }
 
+pub fn ensure_app_icon_file(paths: &RuntimePaths) -> Result<PathBuf, String> {
+    let icon_dir = paths.cache_dir.join("ui-icons");
+    fs::create_dir_all(&icon_dir).map_err(|error| format!("icon cache create failed: {error}"))?;
+    let path = icon_dir.join("app.ico");
+    fs::write(&path, APP_ICON_ICO).map_err(|error| {
+        format!(
+            "app icon cache write failed for {}: {error}",
+            path.display()
+        )
+    })?;
+    Ok(path)
+}
+
 fn ensure_icon_files(paths: &RuntimePaths) -> Result<PathBuf, String> {
     let icon_dir = paths.cache_dir.join("ui-icons");
     fs::create_dir_all(&icon_dir).map_err(|error| format!("icon cache create failed: {error}"))?;
@@ -464,6 +498,7 @@ fn ensure_icon_files(paths: &RuntimePaths) -> Result<PathBuf, String> {
         fs::write(&path, bytes)
             .map_err(|error| format!("icon cache write failed for {}: {error}", path.display()))?;
     }
+    ensure_app_icon_file(paths)?;
     Ok(icon_dir)
 }
 
@@ -489,6 +524,14 @@ fn register_window_class() -> Result<(), String> {
             }
             WM_SIZE => {
                 layout_controls(hwnd);
+                unsafe {
+                    let _ = RedrawWindow(
+                        Some(hwnd),
+                        None,
+                        None,
+                        RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
+                    );
+                }
                 LRESULT(0)
             }
             WM_ERASEBKGND => {
@@ -521,6 +564,11 @@ fn register_window_class() -> Result<(), String> {
                 measure_owner_draw_item(lparam);
                 LRESULT(1)
             }
+            WM_LBUTTONDOWN | WM_NCLBUTTONDOWN => {
+                commit_profile_name_edit_for_external_click(hwnd);
+                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            }
+            WM_PARENTNOTIFY => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
             WM_COMMAND => {
                 handle_command(hwnd, wparam);
                 LRESULT(0)
@@ -541,7 +589,7 @@ fn register_window_class() -> Result<(), String> {
                 unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
             }
             WM_CLOSE => {
-                hide_to_tray(hwnd);
+                push_event(SettingsUiEvent::WindowCloseRequested);
                 LRESULT(0)
             }
             WM_DESTROY => {
@@ -592,6 +640,9 @@ fn register_log_window_class() -> Result<(), String> {
             WM_CREATE => LRESULT(0),
             WM_SIZE => {
                 layout_log_window(hwnd);
+                unsafe {
+                    let _ = RedrawWindow(Some(hwnd), None, None, RDW_INVALIDATE | RDW_ERASE);
+                }
                 LRESULT(0)
             }
             WM_ERASEBKGND => {
@@ -854,14 +905,7 @@ fn layout_controls(hwnd: HWND) {
         hotkey_value_w,
         24,
     );
-    move_child(
-        hwnd,
-        ID_HOTKEY_MOD_SECONDARY,
-        value_x,
-        hotkey_text_y,
-        1,
-        1,
-    );
+    move_child(hwnd, ID_HOTKEY_MOD_SECONDARY, value_x, hotkey_text_y, 1, 1);
     move_child(hwnd, ID_HOTKEY_KEY, value_x, hotkey_text_y, 1, 1);
     move_child(hwnd, ID_HOTKEY_CHANGE, action_x, hotkey_button_y, 84, 32);
 
@@ -1053,7 +1097,7 @@ fn layout_profile_buttons(
     hwnd: HWND,
     layout: &UiLayout,
     profile_count: usize,
-    selected_index: usize,
+    _selected_index: usize,
     modal_active: bool,
 ) {
     let list_rect = profile_list_rect(layout, profile_count);
@@ -1068,21 +1112,11 @@ fn layout_profile_buttons(
         layout.sidebar_w - 16,
         28,
     );
-    let delete_y = list_rect.top + selected_index as i32 * PROFILE_ROW_HEIGHT;
-    move_child(
-        hwnd,
-        ID_DELETE_PROFILE,
-        layout.sidebar_x + layout.sidebar_w - 36,
-        delete_y,
-        26,
-        PROFILE_ROW_HEIGHT,
-    );
     show_child(hwnd, ID_ADD_PROFILE, true);
-    show_child(hwnd, ID_DELETE_PROFILE, selected_index > 0);
+    show_child(hwnd, ID_DELETE_PROFILE, false);
     set_child_enabled(hwnd, ID_ADD_PROFILE, !modal_active);
-    set_child_enabled(hwnd, ID_DELETE_PROFILE, !modal_active && selected_index > 0);
+    set_child_enabled(hwnd, ID_DELETE_PROFILE, false);
     raise_child(hwnd, ID_ADD_PROFILE);
-    raise_child(hwnd, ID_DELETE_PROFILE);
     invalidate_sidebar(hwnd, layout);
 }
 
@@ -1092,8 +1126,76 @@ fn profile_list_rect(layout: &UiLayout, profile_count: usize) -> RECT {
     RECT {
         left: layout.sidebar_x + 8,
         top: layout.sidebar_y + 6,
-        right: layout.sidebar_x + layout.sidebar_w - 44,
+        right: layout.sidebar_x + layout.sidebar_w - 8,
         bottom: layout.sidebar_y + 6 + rows_h,
+    }
+}
+
+fn profile_item_rect_in_parent(hwnd: HWND, profile_index: usize) -> Option<RECT> {
+    let list = get(hwnd, ID_PROFILE_LIST);
+    if list.0.is_null() {
+        return None;
+    }
+    let mut item_rect = RECT::default();
+    if send(
+        list,
+        LB_GETITEMRECT_MSG,
+        profile_index,
+        &mut item_rect as *mut RECT as isize,
+    ) < 0
+    {
+        return None;
+    }
+    let mut parent_origin = POINT { x: 0, y: 0 };
+    let mut list_origin = POINT { x: 0, y: 0 };
+    let parent_ok = unsafe { ClientToScreen(hwnd, &mut parent_origin).as_bool() };
+    let list_ok = unsafe { ClientToScreen(list, &mut list_origin).as_bool() };
+    if !parent_ok || !list_ok {
+        return None;
+    }
+    let dx = list_origin.x - parent_origin.x;
+    let dy = list_origin.y - parent_origin.y;
+    Some(RECT {
+        left: dx + item_rect.left,
+        top: dy + item_rect.top,
+        right: dx + item_rect.right,
+        bottom: dy + item_rect.bottom,
+    })
+}
+
+fn fallback_profile_item_rect(
+    layout: &UiLayout,
+    profile_count: usize,
+    profile_index: usize,
+) -> RECT {
+    let list_rect = profile_list_rect(layout, profile_count);
+    let top = list_rect.top + (profile_index as i32 * PROFILE_ROW_HEIGHT);
+    RECT {
+        left: list_rect.left,
+        top,
+        right: list_rect.right,
+        bottom: top + PROFILE_ROW_HEIGHT,
+    }
+}
+
+fn profile_delete_icon_rect(row_frame: RECT) -> RECT {
+    let right = row_frame.right - PROFILE_DELETE_RIGHT_PAD;
+    let left = right - PROFILE_DELETE_W;
+    RECT {
+        left,
+        top: row_frame.top + 2,
+        right,
+        bottom: row_frame.bottom - 2,
+    }
+}
+
+fn profile_delete_hit_rect(row_frame: RECT) -> RECT {
+    RECT {
+        left: row_frame.right
+            - (PROFILE_DELETE_W + PROFILE_DELETE_GAP + PROFILE_DELETE_RIGHT_PAD + 8),
+        top: row_frame.top,
+        right: row_frame.right,
+        bottom: row_frame.bottom,
     }
 }
 
@@ -1236,9 +1338,11 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
         true,
     )?;
 
-    create_listbox(hwnd, ID_PROFILE_LIST, 13, 76, 150, 290)?;
+    let profile_list = create_listbox(hwnd, ID_PROFILE_LIST, 13, 76, 150, 290)?;
+    subclass_profile_listbox(profile_list)?;
     create_button(hwnd, "+", ID_ADD_PROFILE, 13, 389, 150, 30)?;
     create_button(hwnd, "-", ID_DELETE_PROFILE, 13, 389, 72, 30)?;
+    show_child(hwnd, ID_DELETE_PROFILE, false);
     create_edit(hwnd, ID_NAME_EDIT, 13, 76, 150, 24)?;
     show_child(hwnd, ID_NAME_EDIT, false);
 
@@ -1539,6 +1643,49 @@ fn load_bitmap_image(
     .map_err(|error| format!("LoadImageW icon failed for {}: {error:?}", path.display()))
 }
 
+fn apply_window_icon(hwnd: HWND, path: &Path) {
+    let small = load_icon_image(path, 16);
+    let big = load_icon_image(path, 32);
+    unsafe {
+        if let Ok(icon) = small {
+            let _ = SendMessageW(
+                hwnd,
+                WM_SETICON,
+                Some(WPARAM(ICON_SMALL_WPARAM)),
+                Some(LPARAM(icon.0 as isize)),
+            );
+        }
+        if let Ok(icon) = big {
+            let _ = SendMessageW(
+                hwnd,
+                WM_SETICON,
+                Some(WPARAM(ICON_BIG_WPARAM)),
+                Some(LPARAM(icon.0 as isize)),
+            );
+        }
+    }
+}
+
+fn load_icon_image(path: &Path, size: i32) -> Result<windows::Win32::Foundation::HANDLE, String> {
+    let path_wide = wide_null(&path.to_string_lossy());
+    unsafe {
+        LoadImageW(
+            None,
+            PCWSTR(path_wide.as_ptr()),
+            IMAGE_ICON,
+            size,
+            size,
+            LR_LOADFROMFILE,
+        )
+    }
+    .map_err(|error| {
+        format!(
+            "LoadImageW app icon failed for {}: {error:?}",
+            path.display()
+        )
+    })
+}
+
 fn create_checkbox(
     hwnd: HWND,
     text: &str,
@@ -1597,6 +1744,251 @@ fn create_listbox(hwnd: HWND, id: i32, x: i32, y: i32, w: i32, h: i32) -> Result
     )
 }
 
+fn subclass_profile_listbox(list: HWND) -> Result<(), String> {
+    let previous = unsafe {
+        SetWindowLongPtrW(
+            list,
+            GWLP_WNDPROC,
+            profile_listbox_proc as *const () as usize as isize,
+        )
+    };
+    if previous == 0 {
+        let error = unsafe { GetLastError() };
+        if error.0 != 0 {
+            return Err(format!("profile list subclass failed: {error:?}"));
+        }
+    }
+    PROFILE_LIST_ORIGINAL_PROC.store(previous, Ordering::Relaxed);
+    Ok(())
+}
+
+unsafe extern "system" fn profile_listbox_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_MOUSEMOVE => {
+            let x = loword(lparam.0 as usize) as i16 as i32;
+            let y = hiword(lparam.0 as usize) as i16 as i32;
+            track_profile_list_mouse_leave(hwnd);
+            update_profile_list_hover(hwnd, Some((x, y)));
+        }
+        WM_MOUSELEAVE_MSG => {
+            update_profile_list_hover(hwnd, None);
+            clear_profile_list_delete_press(hwnd);
+        }
+        WM_LBUTTONDOWN => {
+            let x = loword(lparam.0 as usize) as i16 as i32;
+            let y = hiword(lparam.0 as usize) as i16 as i32;
+            if begin_profile_list_delete_click(hwnd, x, y) {
+                return LRESULT(0);
+            }
+        }
+        WM_LBUTTONUP => {
+            let x = loword(lparam.0 as usize) as i16 as i32;
+            let y = hiword(lparam.0 as usize) as i16 as i32;
+            if finish_profile_list_delete_click(hwnd, x, y) {
+                return LRESULT(0);
+            }
+        }
+        _ => {}
+    }
+    let previous = PROFILE_LIST_ORIGINAL_PROC.load(Ordering::Relaxed);
+    if previous != 0 {
+        let proc: WNDPROC = unsafe { std::mem::transmute(previous) };
+        unsafe { CallWindowProcW(proc, hwnd, msg, wparam, lparam) }
+    } else {
+        unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+    }
+}
+
+fn clear_profile_list_delete_press(list: HWND) {
+    let Ok(parent) = (unsafe { GetParent(list) }) else {
+        return;
+    };
+    if parent.0.is_null() {
+        return;
+    }
+    let Ok(mut slot) = state_slot().try_lock() else {
+        return;
+    };
+    let Some(state) = slot.as_mut() else {
+        return;
+    };
+    if state.hwnd == raw_from_hwnd(parent) {
+        state.pressed_delete_profile_index = None;
+    }
+}
+
+fn track_profile_list_mouse_leave(list: HWND) {
+    let mut event = TRACKMOUSEEVENT {
+        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+        dwFlags: TME_LEAVE,
+        hwndTrack: list,
+        dwHoverTime: 0,
+    };
+    unsafe {
+        let _ = TrackMouseEvent(&mut event);
+    }
+}
+
+fn update_profile_list_hover(list: HWND, point: Option<(i32, i32)>) {
+    let Ok(parent) = (unsafe { GetParent(list) }) else {
+        return;
+    };
+    if parent.0.is_null() {
+        return;
+    }
+    let Ok(mut slot) = state_slot().try_lock() else {
+        return;
+    };
+    let Some(state) = slot.as_mut() else {
+        return;
+    };
+    if state.hwnd != raw_from_hwnd(parent) {
+        return;
+    }
+    let profile_count = profiles(&state.settings).len();
+    let next = if state.settings_panel_visible || state.hotkey_panel_visible {
+        None
+    } else if let Some((x, y)) = point {
+        profile_index_at_list_point(list, profile_count, x, y)
+            .map(|(index, _)| index)
+            .filter(|index| *index > 0)
+    } else {
+        None
+    };
+    if state.hovered_profile_index != next {
+        state.hovered_profile_index = next;
+        unsafe {
+            let _ = InvalidateRect(Some(list), None, false);
+        }
+    }
+}
+
+fn hovered_profile_index_for_profile_list(list: HWND) -> Option<usize> {
+    let Ok(parent) = (unsafe { GetParent(list) }) else {
+        return None;
+    };
+    if parent.0.is_null() {
+        return None;
+    }
+    let Ok(slot) = state_slot().try_lock() else {
+        return None;
+    };
+    let Some(state) = slot.as_ref() else {
+        return None;
+    };
+    if state.hwnd == raw_from_hwnd(parent) {
+        state.hovered_profile_index
+    } else {
+        None
+    }
+}
+
+fn profile_index_at_list_point(
+    list: HWND,
+    profile_count: usize,
+    x: i32,
+    y: i32,
+) -> Option<(usize, RECT)> {
+    for index in 0..profile_count {
+        let mut row = RECT::default();
+        if send(
+            list,
+            LB_GETITEMRECT_MSG,
+            index,
+            &mut row as *mut RECT as isize,
+        ) >= 0
+            && rect_contains_point(row, x, y)
+        {
+            return Some((index, row));
+        }
+    }
+    None
+}
+
+fn profile_delete_index_at_point(
+    state: &SettingsUiState,
+    list: HWND,
+    x: i32,
+    y: i32,
+) -> Option<usize> {
+    if state.loading || state.settings_panel_visible || state.hotkey_panel_visible {
+        return None;
+    }
+    let profile_count = profiles(&state.settings).len();
+    let (delete_index, row) = profile_index_at_list_point(list, profile_count, x, y)?;
+    if delete_index == 0 {
+        return None;
+    }
+    let delete_rect = profile_delete_hit_rect(inset_rect(row, 2, 2));
+    rect_contains_point(delete_rect, x, y).then_some(delete_index)
+}
+
+fn begin_profile_list_delete_click(list: HWND, x: i32, y: i32) -> bool {
+    let Ok(parent) = (unsafe { GetParent(list) }) else {
+        return false;
+    };
+    if parent.0.is_null() {
+        return false;
+    }
+    let Ok(mut slot) = state_slot().try_lock() else {
+        return false;
+    };
+    let Some(state) = slot.as_mut() else {
+        return false;
+    };
+    if state.hwnd != raw_from_hwnd(parent) {
+        return false;
+    }
+    let Some(delete_index) = profile_delete_index_at_point(state, list, x, y) else {
+        state.pressed_delete_profile_index = None;
+        return false;
+    };
+    state.pressed_delete_profile_index = Some(delete_index);
+    true
+}
+
+fn finish_profile_list_delete_click(list: HWND, x: i32, y: i32) -> bool {
+    let Ok(parent) = (unsafe { GetParent(list) }) else {
+        return false;
+    };
+    if parent.0.is_null() {
+        return false;
+    }
+    let Ok(mut slot) = state_slot().try_lock() else {
+        return false;
+    };
+    let Some(state) = slot.as_mut() else {
+        return false;
+    };
+    if state.hwnd != raw_from_hwnd(parent) {
+        return false;
+    }
+    let pressed_index = state.pressed_delete_profile_index.take();
+    let Some(delete_index) = profile_delete_index_at_point(state, list, x, y) else {
+        return pressed_index.is_some();
+    };
+    if pressed_index.is_some_and(|index| index != delete_index) {
+        return true;
+    }
+    commit_profile_name_edit(state, true);
+    state.pending_profile_name = None;
+    state.loading = true;
+    show_child(parent, ID_NAME_EDIT, false);
+    state.loading = false;
+    if delete_profile_at(state, delete_index) {
+        let _ = save_settings(state);
+        push_event(SettingsUiEvent::ProfileChanged);
+        refresh_all_controls(state);
+        layout_profile_buttons_for_state(state);
+    }
+    true
+}
+
 fn create_plain_listbox(
     hwnd: HWND,
     id: i32,
@@ -1640,6 +2032,7 @@ fn create_child(
     } else {
         Some(HMENU(id as isize as *mut _))
     };
+    let style = WINDOW_STYLE(style.0 | WS_CLIPSIBLINGS.0);
     unsafe {
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
@@ -1731,6 +2124,7 @@ fn draw_owner_profile_item(item: &OwnerDrawItem) {
     }
     let selected = (item.item_state & ODS_SELECTED_FLAG) != 0;
     let rect = inset_rect(item.rc_item, 2, 2);
+    let editing = selected && rename_edit_visible_for_profile_list(item.hwnd_item);
     fill_rect_color(
         item.hdc,
         &item.rc_item,
@@ -1743,23 +2137,58 @@ fn draw_owner_profile_item(item: &OwnerDrawItem) {
     if selected {
         sketch_round_rect(item.hdc, &rect, UI_RADIUS, UI_STROKE_WIDTH);
     }
-    let text = listbox_item_text(item.hwnd_item, item.item_id);
-    draw_text_left(
-        item.hdc,
-        &text,
-        rect.left + 8,
-        rect.top + 4,
-        if selected {
-            rgb(0, 0, 0)
+    let hovered = hovered_profile_index_for_profile_list(item.hwnd_item)
+        .map(|index| index == item.item_id as usize)
+        .unwrap_or(false);
+    let show_delete = item.item_id > 0 && hovered;
+    if !editing {
+        let text = listbox_item_text(item.hwnd_item, item.item_id);
+        let reserved_action_width = if show_delete {
+            PROFILE_DELETE_W + PROFILE_DELETE_GAP
         } else {
-            rgb(35, 35, 35)
-        },
-    );
+            0
+        };
+        let text_rect = RECT {
+            left: rect.left + 8,
+            top: rect.top + 2,
+            right: rect.right - 8 - reserved_action_width,
+            bottom: rect.bottom - 2,
+        };
+        draw_text_ellipsis(
+            item.hdc,
+            &text,
+            &text_rect,
+            if selected {
+                rgb(0, 0, 0)
+            } else {
+                rgb(35, 35, 35)
+            },
+        );
+    }
+    if show_delete {
+        let delete_rect = profile_delete_icon_rect(rect);
+        let _ = draw_profile_action_icon(item.hdc, &delete_rect, ID_DELETE_PROFILE, false);
+    }
+}
+
+fn rename_edit_visible_for_profile_list(list_hwnd: HWND) -> bool {
+    unsafe {
+        let Ok(parent) = GetParent(list_hwnd) else {
+            return false;
+        };
+        !parent.0.is_null() && IsWindowVisible(get(parent, ID_NAME_EDIT)).as_bool()
+    }
 }
 
 fn draw_owner_button(item: &OwnerDrawItem) {
     let id = item.ctl_id as i32;
     let disabled = (item.item_state & ODS_DISABLED_FLAG) != 0;
+    if id == ID_DELETE_PROFILE {
+        fill_rect_color(item.hdc, &item.rc_item, rgb(244, 246, 240));
+        let rect = inset_rect(item.rc_item, 3, 3);
+        let _ = draw_profile_action_icon(item.hdc, &rect, id, disabled);
+        return;
+    }
     let selected = (item.item_state & ODS_SELECTED_FLAG) != 0;
     let mut rect = inset_rect(item.rc_item, 2, 2);
     if selected {
@@ -2034,6 +2463,24 @@ fn draw_text_left(hdc: HDC, text: &str, x: i32, y: i32, color: COLORREF) {
     }
 }
 
+fn draw_text_ellipsis(hdc: HDC, text: &str, rect: &RECT, color: COLORREF) {
+    let mut text = wide_null(text);
+    let text_len = text.len().saturating_sub(1);
+    let mut rect = *rect;
+    unsafe {
+        let _ = SetBkMode(hdc, TRANSPARENT);
+        let _ = SetTextColor(hdc, color);
+        let old_font = SelectObject(hdc, sketch_font_object());
+        let _ = DrawTextW(
+            hdc,
+            &mut text[..text_len],
+            &mut rect as *mut RECT,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+        );
+        let _ = SelectObject(hdc, old_font);
+    }
+}
+
 fn draw_text_center(hdc: HDC, text: &str, rect: &RECT, color: COLORREF) {
     let text_width = approximate_text_width(text);
     let x = rect.left + ((rect.right - rect.left - text_width) / 2).max(4);
@@ -2106,7 +2553,18 @@ fn handle_command(hwnd: HWND, wparam: WPARAM) {
             }
         }
         ID_PROFILE_LIST if code == LBN_DBLCLK => {
+            let selected = send(get(hwnd, ID_PROFILE_LIST), LB_GETCURSEL, 0, 0);
             commit_profile_name_edit(state, true);
+            if selected >= 0 {
+                state.selected_index = selected as usize;
+                if let Some((profile_id, hotkey)) =
+                    profile_at(&state.settings, state.selected_index)
+                        .map(|profile| (profile.id.clone(), profile.windowed_hotkey.clone()))
+                {
+                    state.settings.profiles.active_profile_id = profile_id;
+                    state.settings.hotkeys.windowed_toggle = hotkey;
+                }
+            }
             show_profile_rename_edit(state);
         }
         ID_ADD_PROFILE if code == BN_CLICKED => {
@@ -2128,9 +2586,9 @@ fn handle_command(hwnd: HWND, wparam: WPARAM) {
             commit_profile_name_edit(state, true);
         }
         ID_NAME_EDIT if code == EN_CHANGE => {
-            // Commit on Enter, focus loss, or clicking another control.  Rebuilding the listbox on
-            // every keystroke makes the owner-draw sidebar visibly flicker and can keep focus stuck
-            // inside the rename edit.
+            if rename_edit_visible(state) {
+                state.pending_profile_name = Some(get_text(get(hwnd, ID_NAME_EDIT)));
+            }
         }
         ID_HOTKEY_CHANGE if code == BN_CLICKED => show_hotkey_panel(state, true),
         ID_SCALE_EDIT if code == EN_CHANGE => sanitize_scale_edit(state, false),
@@ -2172,7 +2630,10 @@ fn handle_keydown(hwnd: HWND, vk: u32) -> bool {
                     return true;
                 }
                 0x1B => {
+                    state.pending_profile_name = None;
                     show_child(hwnd, ID_NAME_EDIT, false);
+                    set_child_enabled(hwnd, ID_PROFILE_LIST, true);
+                    layout_profile_buttons_for_state(state);
                     return true;
                 }
                 _ => {}
@@ -2227,10 +2688,12 @@ fn poll_rename_edit_keys(hwnd: HWND) {
 
     let escape_down = key_down(0x1B);
     if escape_down && !state.rename_escape_down {
+        state.pending_profile_name = None;
         state.loading = true;
         show_child(hwnd, ID_NAME_EDIT, false);
+        set_child_enabled(hwnd, ID_PROFILE_LIST, true);
         state.loading = false;
-        invalidate_sidebar(hwnd, &current_layout(hwnd));
+        layout_profile_buttons_for_state(state);
     }
     state.rename_escape_down = escape_down;
 }
@@ -2327,7 +2790,14 @@ fn refresh_profile_list(state: &mut SettingsUiState) {
     }
     let _ = send(list, LB_SETCURSEL, state.selected_index, 0);
     let layout = current_layout(hwnd);
-    let list_rect = profile_list_rect(&layout, profiles(&state.settings).len());
+    let profile_count = profiles(&state.settings).len();
+    if state
+        .hovered_profile_index
+        .is_some_and(|index| index >= profile_count)
+    {
+        state.hovered_profile_index = None;
+    }
+    let list_rect = profile_list_rect(&layout, profile_count);
     let visible_rows = ((list_rect.bottom - list_rect.top) / PROFILE_ROW_HEIGHT).max(1) as usize;
     let top_index = state
         .selected_index
@@ -2354,13 +2824,8 @@ fn refresh_profile_controls(state: &mut SettingsUiState) {
         get(hwnd, ID_SCALE_EDIT),
         &profile.windowed_scale_percent.to_string(),
     );
-    let modal_active = state.settings_panel_visible || state.hotkey_panel_visible;
-    show_child(hwnd, ID_DELETE_PROFILE, state.selected_index > 0);
-    set_child_enabled(
-        hwnd,
-        ID_DELETE_PROFILE,
-        !modal_active && state.selected_index > 0,
-    );
+    show_child(hwnd, ID_DELETE_PROFILE, false);
+    set_child_enabled(hwnd, ID_DELETE_PROFILE, false);
     state.loading = false;
 }
 
@@ -2370,36 +2835,101 @@ fn show_profile_rename_edit(state: &mut SettingsUiState) {
         return;
     };
     let layout = current_layout(hwnd);
-    let y = layout.sidebar_y
-        + 6
-        + (state.selected_index as i32 * PROFILE_ROW_HEIGHT).clamp(0, layout.sidebar_h - 32);
+    let profile_count = profiles(&state.settings).len();
+    let row_rect = profile_item_rect_in_parent(hwnd, state.selected_index).unwrap_or_else(|| {
+        fallback_profile_item_rect(&layout, profile_count, state.selected_index)
+    });
+    let row_frame = inset_rect(row_rect, 2, 2);
+    let delete_reserve = if state.selected_index > 0 {
+        PROFILE_DELETE_W + PROFILE_DELETE_GAP + PROFILE_DELETE_RIGHT_PAD
+    } else {
+        0
+    };
+    let edit_left = row_frame.left + 8;
+    let edit_top = row_frame.top + 2;
+    let edit_right = row_frame.right - delete_reserve;
+    let edit_w = (edit_right - edit_left).max(64);
+    let edit_h = (row_frame.bottom - row_frame.top - 4).max(18);
     let edit = get(hwnd, ID_NAME_EDIT);
     state.loading = true;
+    set_child_enabled(hwnd, ID_PROFILE_LIST, true);
+    show_child(hwnd, ID_DELETE_PROFILE, false);
     unsafe {
         let _ = SetWindowPos(
             edit,
-            None,
-            layout.sidebar_x + 8,
-            y,
-            if state.selected_index > 0 {
-                layout.sidebar_w - 50
-            } else {
-                layout.sidebar_w - 16
-            },
-            24,
-            SET_WINDOW_POS_FLAGS(SWP_NOZORDER.0),
+            Some(HWND_TOP),
+            edit_left,
+            edit_top,
+            edit_w,
+            edit_h,
+            SET_WINDOW_POS_FLAGS(SWP_NOACTIVATE.0),
         );
     }
-    set_text(edit, &profile.display_name);
+    unsafe {
+        let _ = RedrawWindow(
+            Some(get(hwnd, ID_PROFILE_LIST)),
+            None,
+            None,
+            RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW,
+        );
+    }
     show_child(hwnd, ID_NAME_EDIT, true);
+    raise_child(hwnd, ID_NAME_EDIT);
     state.loading = false;
+    invalidate_sidebar(hwnd, &layout);
     unsafe {
         let _ = SetFocus(Some(edit));
     }
+    set_text(edit, &profile.display_name);
+    unsafe {
+        let _ = RedrawWindow(
+            Some(edit),
+            None,
+            None,
+            RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW,
+        );
+        let _ = UpdateWindow(edit);
+    }
+    state.pending_profile_name = Some(profile.display_name);
+    let caret = get_text(edit).encode_utf16().count() as isize;
+    let _ = send(edit, EM_SETSEL_MSG, caret as usize, caret);
 }
 
 fn rename_edit_visible(state: &SettingsUiState) -> bool {
     unsafe { IsWindowVisible(get(hwnd_from_raw(state.hwnd), ID_NAME_EDIT)).as_bool() }
+}
+
+fn commit_profile_name_edit_for_external_click(hwnd: HWND) {
+    let Ok(mut slot) = state_slot().try_lock() else {
+        return;
+    };
+    let Some(state) = slot.as_mut() else {
+        return;
+    };
+    if !rename_edit_visible(state) || cursor_over_child(hwnd, ID_NAME_EDIT) {
+        return;
+    }
+    commit_profile_name_edit(state, true);
+}
+
+fn cursor_over_child(parent: HWND, id: i32) -> bool {
+    let child = get(parent, id);
+    if child.0.is_null() {
+        return false;
+    }
+    let mut point = POINT::default();
+    let mut rect = RECT::default();
+    if unsafe { GetCursorPos(&mut point) }.is_err() {
+        return false;
+    }
+    if unsafe { GetWindowRect(child, &mut rect) }.is_err() {
+        return false;
+    }
+    rect_contains_point(rect, point.x, point.y)
+}
+
+fn rect_contains_point(rect: RECT, x: i32, y: i32) -> bool {
+    x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
 }
 
 fn commit_profile_name_edit(state: &mut SettingsUiState, hide: bool) {
@@ -2408,22 +2938,32 @@ fn commit_profile_name_edit(state: &mut SettingsUiState, hide: bool) {
     }
     let hwnd = hwnd_from_raw(state.hwnd);
     let edit = get(hwnd, ID_NAME_EDIT);
-    let name = get_text(edit).trim().to_string();
+    let name = state
+        .pending_profile_name
+        .clone()
+        .unwrap_or_else(|| get_text(edit))
+        .trim()
+        .to_string();
     if !name.is_empty() {
         if let Some(profile) = selected_profile_mut(&mut state.settings, state.selected_index) {
             if profile.display_name != name {
                 profile.display_name = name;
                 let _ = save_settings(state);
                 refresh_profile_list(state);
-                push_event(SettingsUiEvent::ProfileChanged);
             }
         }
     }
     if hide {
+        state.pending_profile_name = None;
         state.loading = true;
         show_child(hwnd, ID_NAME_EDIT, false);
+        set_child_enabled(
+            hwnd,
+            ID_PROFILE_LIST,
+            !(state.settings_panel_visible || state.hotkey_panel_visible),
+        );
         state.loading = false;
-        invalidate_sidebar(hwnd, &current_layout(hwnd));
+        layout_profile_buttons_for_state(state);
     }
 }
 
@@ -2669,6 +3209,7 @@ fn reset_settings(hwnd: HWND, state: &mut SettingsUiState) {
     }
     state.settings = DodbogiSettings::default();
     state.selected_index = 0;
+    state.hovered_profile_index = None;
     let _ = save_settings(state);
     refresh_all_controls(state);
     push_event(SettingsUiEvent::HotkeysChanged);
@@ -2694,6 +3235,7 @@ fn add_profile(state: &mut SettingsUiState) {
             state.settings.profiles.per_app_profiles.push(profile);
             state.settings.profiles.active_profile_id = id;
             state.selected_index = state.settings.profiles.per_app_profiles.len();
+            state.hovered_profile_index = None;
             if let Some(profile) = profile_at(&state.settings, state.selected_index) {
                 state.settings.hotkeys.windowed_toggle = profile.windowed_hotkey.clone();
             }
@@ -2704,12 +3246,24 @@ fn add_profile(state: &mut SettingsUiState) {
 }
 
 fn delete_selected_profile(state: &mut SettingsUiState) -> bool {
-    if state.selected_index == 0 {
+    delete_profile_at(state, state.selected_index)
+}
+
+fn delete_profile_at(state: &mut SettingsUiState, profile_index: usize) -> bool {
+    if profile_index == 0 {
         return false;
     }
-    let remove_index = state.selected_index - 1;
+    let Some(removed_profile) = profile_at(&state.settings, profile_index).cloned() else {
+        state.selected_index = selected_index_for_settings(&state.settings);
+        state.hovered_profile_index = None;
+        return false;
+    };
+    let removed_id = removed_profile.id;
+    let removed_was_active = state.settings.profiles.active_profile_id == removed_id;
+    let remove_index = profile_index - 1;
     if remove_index >= state.settings.profiles.per_app_profiles.len() {
         state.selected_index = selected_index_for_settings(&state.settings);
+        state.hovered_profile_index = None;
         return false;
     }
 
@@ -2719,12 +3273,33 @@ fn delete_selected_profile(state: &mut SettingsUiState) -> bool {
         .per_app_profiles
         .remove(remove_index);
     let profile_count = profiles(&state.settings).len();
-    state.selected_index = if profile_count == 0 {
-        0
+    state.hovered_profile_index = None;
+
+    if profile_count == 0 {
+        state.selected_index = 0;
+    } else if profile_index < state.selected_index {
+        state.selected_index = state.selected_index.saturating_sub(1);
+    } else if profile_index == state.selected_index {
+        state.selected_index = state.selected_index.min(profile_count - 1);
     } else {
-        state.selected_index.min(profile_count - 1)
-    };
-    if let Some(profile) = profile_at(&state.settings, state.selected_index).cloned() {
+        state.selected_index = state.selected_index.min(profile_count - 1);
+    }
+
+    if removed_was_active {
+        activate_profile_at_index(state, state.selected_index);
+    } else {
+        let active_id = state.settings.profiles.active_profile_id.clone();
+        if let Some(profile) = profile_by_id(&state.settings, &active_id) {
+            state.settings.hotkeys.windowed_toggle = profile.windowed_hotkey.clone();
+        } else {
+            activate_profile_at_index(state, state.selected_index);
+        }
+    }
+    true
+}
+
+fn activate_profile_at_index(state: &mut SettingsUiState, index: usize) {
+    if let Some(profile) = profile_at(&state.settings, index).cloned() {
         state.settings.profiles.active_profile_id = profile.id;
         state.settings.hotkeys.windowed_toggle = profile.windowed_hotkey;
     } else {
@@ -2738,7 +3313,6 @@ fn delete_selected_profile(state: &mut SettingsUiState) -> bool {
             .clone();
         state.selected_index = 0;
     }
-    true
 }
 
 fn save_settings(state: &SettingsUiState) -> Result<(), String> {
@@ -2795,6 +3369,12 @@ fn profile_at(settings: &DodbogiSettings, index: usize) -> Option<&AppProfile> {
     } else {
         settings.profiles.per_app_profiles.get(index - 1)
     }
+}
+
+fn profile_by_id<'a>(settings: &'a DodbogiSettings, id: &str) -> Option<&'a AppProfile> {
+    profiles(settings)
+        .into_iter()
+        .find(|profile| profile.id == id)
 }
 
 fn selected_profile_mut(settings: &mut DodbogiSettings, index: usize) -> Option<&mut AppProfile> {
@@ -3038,7 +3618,9 @@ fn update_modal_base_enabled(state: &SettingsUiState) {
     for id in base_interaction_ids() {
         let enabled = !modal_active && (*id != ID_DELETE_PROFILE || state.selected_index > 0);
         if *id == ID_DELETE_PROFILE {
-            show_child(hwnd, *id, state.selected_index > 0);
+            show_child(hwnd, *id, false);
+            set_child_enabled(hwnd, *id, false);
+            continue;
         }
         set_child_enabled(hwnd, *id, enabled);
     }

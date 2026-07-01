@@ -113,6 +113,10 @@ pub enum ShellMessage {
     TrayMenu {
         item_id: &'static str,
     },
+    TrayCallback {
+        code: u32,
+        icon_id: u32,
+    },
     OverlayInput {
         hwnd: isize,
         kind: InputEventKind,
@@ -417,21 +421,21 @@ mod imp {
                     DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, GetClientRect,
                     GetClipCursor, GetCursorInfo, GetCursorPos, GetForegroundWindow,
                     GetGUIThreadInfo, GetIconInfo, GetWindowRect, GetWindowThreadProcessId,
-                    IsWindow, IsWindowVisible, LoadCursorW, LoadIconW, PeekMessageW, PostMessageW,
-                    RegisterClassW, SetCursorPos, SetForegroundWindow, SetLayeredWindowAttributes,
-                    SetWindowLongPtrW, SetWindowPos, ShowCursor, SystemParametersInfoW,
-                    TranslateMessage, WindowFromPoint, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW,
-                    CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE, GWLP_HWNDPARENT, HICON,
-                    HTCLIENT, HTTRANSPARENT, HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW,
-                    IDI_APPLICATION, LWA_ALPHA, LWA_COLORKEY, MF_CHECKED, MF_GRAYED, MF_STRING,
-                    MF_UNCHECKED, PM_REMOVE, SPI_GETMOUSE, SPI_GETMOUSESPEED, SPI_SETCURSORS,
-                    SPI_SETMOUSESPEED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE,
-                    SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-                    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP, WM_COMMAND, WM_CONTEXTMENU,
-                    WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-                    WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-                    WM_NCHITTEST, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
-                    WM_RBUTTONUP, WM_SETCURSOR, WM_USER, WNDCLASSW, WS_EX_LAYERED,
+                    IsWindow, IsWindowVisible, LoadCursorW, LoadIconW, LoadImageW, PeekMessageW,
+                    PostMessageW, RegisterClassW, SetCursorPos, SetForegroundWindow,
+                    SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos, ShowCursor,
+                    SystemParametersInfoW, TranslateMessage, WindowFromPoint, CS_DBLCLKS,
+                    CS_HREDRAW, CS_VREDRAW, CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE,
+                    GWLP_HWNDPARENT, HICON, HTCLIENT, HTTRANSPARENT, HWND_TOP, HWND_TOPMOST,
+                    ICONINFO, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, LWA_ALPHA,
+                    LWA_COLORKEY, MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED, PM_REMOVE,
+                    SPI_GETMOUSE, SPI_GETMOUSESPEED, SPI_SETCURSORS, SPI_SETMOUSESPEED,
+                    SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSENDCHANGING,
+                    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+                    WM_APP, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK,
+                    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP,
+                    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK,
+                    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_USER, WNDCLASSW, WS_EX_LAYERED,
                     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
@@ -672,7 +676,11 @@ mod imp {
         unsafe { GetGUIThreadInfo(0, &mut info) }.is_ok() && info.flags.contains(GUI_INMOVESIZE)
     }
 
-    fn source_foreground_capture_active(target_hwnd: isize) -> bool {
+    fn source_foreground_active(target_hwnd: isize) -> bool {
+        (unsafe { GetForegroundWindow() }) == hwnd_from_raw(target_hwnd)
+    }
+
+    fn source_mouse_capture_active(target_hwnd: isize) -> bool {
         let target = hwnd_from_raw(target_hwnd);
         let mut info = GUITHREADINFO {
             cbSize: size_of::<GUITHREADINFO>() as u32,
@@ -682,7 +690,7 @@ mod imp {
             return false;
         }
 
-        info.hwndCapture == target || unsafe { GetForegroundWindow() } == target
+        info.hwndCapture == target
     }
 
     fn raw_window_rect(hwnd: HWND) -> Result<PhysicalRect, Win32Error> {
@@ -1471,8 +1479,22 @@ mod imp {
                 .map_err(|error| Win32Error::Api(format!("GetCursorPos failed: {error:?}")))?;
             self.cursor_overlay.attach_to_source(target_hwnd)?;
 
-            let source_capture_active = source_foreground_capture_active(target_hwnd);
+            let source_foreground_active = source_foreground_active(target_hwnd);
+            let source_capture_active = source_mouse_capture_active(target_hwnd);
             let move_size_active = is_foreground_move_size_active();
+
+            if self.captured && !source_foreground_active && !source_capture_active {
+                let overlay_point = self.last_overlay_point;
+                let speed_detail = self.release_to_overlay_position(overlay_point)?;
+                return Ok(Some(CursorCaptureReport {
+                    captured: false,
+                    source_point: Some((hardware.x, hardware.y)),
+                    overlay_point,
+                    detail: format!(
+                        "cursor_capture_released; foreign foreground window is active; {speed_detail}"
+                    ),
+                }));
+            }
 
             if move_size_active {
                 if self.captured {
@@ -1567,6 +1589,9 @@ mod imp {
                 return Ok(None);
             }
             if rect_contains_point(transform.destination, hardware.x, hardware.y) {
+                if !source_foreground_active {
+                    return Ok(None);
+                }
                 let Some(source_point) = transform.overlay_to_source_pixel(overlay) else {
                     return Ok(None);
                 };
@@ -1587,7 +1612,6 @@ mod imp {
                     let _ = self.restore_cursor_speed();
                     return Err(error);
                 }
-                let focus_detail = request_source_focus(target_hwnd);
                 self.captured = true;
                 self.last_overlay_point = Some(overlay_point);
                 return Ok(Some(CursorCaptureReport {
@@ -1595,7 +1619,7 @@ mod imp {
                     source_point: Some(source_point),
                     overlay_point: Some(overlay_point),
                     detail: format!(
-                        "cursor_capture_entered; real cursor moved to source, overlay cursor is drawn separately; {cursor_visibility_detail}; {speed_detail}; {focus_detail}"
+                        "cursor_capture_entered; real cursor moved to source, overlay cursor is drawn separately; {cursor_visibility_detail}; {speed_detail}; source_focus_preserved"
                     ),
                 }));
             }
@@ -1868,24 +1892,9 @@ mod imp {
         .map_err(|error| Win32Error::Api(format!("SPI_SETMOUSESPEED failed: {error:?}")))
     }
 
-    fn request_source_focus(target_hwnd: isize) -> String {
-        if target_hwnd == 0 {
-            return "source_focus_skipped invalid_hwnd".to_string();
-        }
-        let hwnd = hwnd_from_raw(target_hwnd);
-        if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
-            return "source_focus_skipped invalid_hwnd".to_string();
-        }
-        let focused = unsafe { SetForegroundWindow(hwnd).as_bool() };
-        if focused {
-            "source_focus_requested=true".to_string()
-        } else {
-            "source_focus_requested=false".to_string()
-        }
-    }
-
     const TRAY_ICON_ID: u32 = 1;
     const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 1;
+    const TRAY_DISPATCH_MESSAGE: u32 = WM_APP + 2;
     const NIN_SELECT: u32 = WM_USER;
     const NIN_KEYSELECT: u32 = WM_USER + 1;
 
@@ -1919,14 +1928,52 @@ mod imp {
         Ok(appended)
     }
 
+    fn load_tray_icon(icon_path: Option<&Path>) -> Result<HICON, Win32Error> {
+        if let Some(path) = icon_path {
+            let path_wide = wide_null(&path.to_string_lossy());
+            if let Ok(handle) = unsafe {
+                LoadImageW(
+                    None,
+                    PCWSTR(path_wide.as_ptr()),
+                    IMAGE_ICON,
+                    32,
+                    32,
+                    LR_LOADFROMFILE,
+                )
+            } {
+                if !handle.0.is_null() {
+                    return Ok(HICON(handle.0));
+                }
+            }
+        }
+        unsafe { LoadIconW(None, IDI_APPLICATION) }
+            .map_err(|error| Win32Error::Api(format!("LoadIconW failed: {error:?}")))
+    }
+
     impl ShellTrayIcon {
         pub fn install(menu_items: Vec<TrayMenuItem>) -> Result<Self, Win32Error> {
+            Self::install_with_icon_path(menu_items, None)
+        }
+
+        pub fn install_with_icon_path(
+            menu_items: Vec<TrayMenuItem>,
+            icon_path: Option<&Path>,
+        ) -> Result<Self, Win32Error> {
             unsafe extern "system" fn wnd_proc(
                 hwnd: HWND,
                 msg: u32,
                 wparam: WPARAM,
                 lparam: LPARAM,
             ) -> LRESULT {
+                if msg == TRAY_CALLBACK_MESSAGE {
+                    let callback_code = (lparam.0 as u32) & 0xFFFF;
+                    if callback_code != WM_MOUSEMOVE {
+                        let _ = unsafe {
+                            PostMessageW(Some(hwnd), TRAY_DISPATCH_MESSAGE, wparam, lparam)
+                        };
+                    }
+                    return LRESULT(0);
+                }
                 if msg == WM_DESTROY {
                     return LRESULT(0);
                 }
@@ -1971,8 +2018,7 @@ mod imp {
                 Win32Error::Api(format!("CreateWindowExW shell window failed: {error:?}"))
             })?;
 
-            let icon = unsafe { LoadIconW(None, IDI_APPLICATION) }
-                .map_err(|error| Win32Error::Api(format!("LoadIconW failed: {error:?}")))?;
+            let icon = load_tray_icon(icon_path)?;
             let mut data = NOTIFYICONDATAW {
                 cbSize: size_of::<NOTIFYICONDATAW>() as u32,
                 hWnd: hwnd,
@@ -2011,6 +2057,12 @@ mod imp {
 
         pub fn install_default() -> Result<Self, Win32Error> {
             Self::install(default_tray_menu_items())
+        }
+
+        pub fn install_default_with_icon_path(
+            icon_path: Option<&Path>,
+        ) -> Result<Self, Win32Error> {
+            Self::install_with_icon_path(default_tray_menu_items(), icon_path)
         }
 
         pub fn is_installed(&self) -> bool {
@@ -2096,26 +2148,37 @@ mod imp {
                     name: hotkey_name(msg.wParam.0 as u32),
                 }),
                 WM_COMMAND => self.item_id_for_command(msg.wParam.0),
-                TRAY_CALLBACK_MESSAGE => {
+                TRAY_DISPATCH_MESSAGE => {
                     if msg.hwnd != self.hwnd {
                         return None;
                     }
-                    let mouse_message = msg.lParam.0 as u32;
-                    if mouse_message == WM_LBUTTONUP
-                        || mouse_message == WM_LBUTTONDBLCLK
-                        || mouse_message == NIN_SELECT
-                        || mouse_message == NIN_KEYSELECT
+                    // NOTIFYICON_VERSION_4 packs the notification code in LOWORD(lParam)
+                    // and the icon ID in HIWORD(lParam).  Older versions used lParam as the
+                    // raw mouse message, so LOWORD keeps both contracts working.
+                    let callback_code = (msg.lParam.0 as u32) & 0xFFFF;
+                    let icon_id = ((msg.lParam.0 as u32) >> 16) & 0xFFFF;
+                    if callback_code == WM_LBUTTONDOWN
+                        || callback_code == WM_LBUTTONUP
+                        || callback_code == WM_LBUTTONDBLCLK
+                        || callback_code == NIN_SELECT
+                        || callback_code == NIN_KEYSELECT
                     {
                         return Some(ShellMessage::TrayMenu {
                             item_id: "settings",
                         });
                     }
-                    if mouse_message == WM_RBUTTONUP || mouse_message == WM_CONTEXTMENU {
+                    if callback_code == WM_RBUTTONUP || callback_code == WM_CONTEXTMENU {
                         return match self.show_context_menu_at_cursor() {
                             Ok(Some(item_id)) => Some(ShellMessage::TrayMenu { item_id }),
                             Ok(None) => None,
                             Err(error) => Some(ShellMessage::TrayError(format!("{error:?}"))),
                         };
+                    }
+                    if callback_code != WM_MOUSEMOVE {
+                        return Some(ShellMessage::TrayCallback {
+                            code: callback_code,
+                            icon_id,
+                        });
                     }
                     None
                 }
@@ -2782,6 +2845,12 @@ mod imp {
             Ok(Self {
                 menu_items: super::default_tray_menu_items(),
             })
+        }
+
+        pub fn install_default_with_icon_path(
+            _icon_path: Option<&Path>,
+        ) -> Result<Self, Win32Error> {
+            Self::install_default()
         }
 
         pub fn is_installed(&self) -> bool {
