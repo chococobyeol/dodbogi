@@ -18,34 +18,34 @@ use windows::{
         Graphics::Gdi::{
             AddFontMemResourceEx, BeginPaint, CreateFontW, CreatePen, CreateSolidBrush,
             DeleteObject, EndPaint, FillRect, GetStockObject, InvalidateRect, Rectangle,
-            RedrawWindow, RoundRect, SelectObject, SetBkMode, SetTextColor, TextOutW, UpdateWindow,
+            RedrawWindow, RoundRect, SelectObject, SetBkMode, SetTextColor, TextOutW,
             CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_GUI_FONT, DEFAULT_PITCH, DEFAULT_QUALITY,
             HBRUSH, HDC, HGDIOBJ, HOLLOW_BRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID,
-            RDW_ALLCHILDREN, RDW_ERASE, RDW_ERASENOW, RDW_INVALIDATE, RDW_UPDATENOW, TRANSPARENT,
-            WHITE_BRUSH,
+            RDW_INVALIDATE, TRANSPARENT, WHITE_BRUSH,
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::{
             Input::KeyboardAndMouse::{
-                EnableWindow, GetAsyncKeyState, GetKeyState, SetFocus, VK_CONTROL, VK_LWIN,
+                EnableWindow, GetAsyncKeyState, GetFocus, GetKeyState, SetFocus, VK_CONTROL, VK_LWIN,
                 VK_MENU, VK_RWIN, VK_SHIFT,
             },
             WindowsAndMessaging::{
                 CreateWindowExW, DefWindowProcW, GetClientRect, GetDlgCtrlID, GetDlgItem,
-                GetWindowTextLengthW, GetWindowTextW, KillTimer, LoadCursorW, LoadImageW,
-                MessageBoxW, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer,
-                SetWindowPos, SetWindowTextW, ShowWindow, BM_GETCHECK, BM_SETCHECK, BN_CLICKED,
-                BS_AUTOCHECKBOX, CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
-                CB_RESETCONTENT, CB_SETCURSEL, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
-                EN_CHANGE, EN_KILLFOCUS, ES_AUTOHSCROLL, HMENU, HWND_TOP, IDC_ARROW, IDYES,
+                GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, KillTimer,
+                LoadCursorW, LoadImageW, IsWindowVisible, MessageBoxW, RegisterClassW,
+                SendMessageW, SetForegroundWindow, SetTimer, SetWindowPos, SetWindowTextW,
+                ShowWindow, BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, CS_DBLCLKS,
+                CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, EN_CHANGE, EN_KILLFOCUS, ES_AUTOHSCROLL,
+                ES_AUTOVSCROLL, ES_MULTILINE, ES_READONLY, HMENU, HWND_TOP, IDC_ARROW, IDYES,
                 IMAGE_BITMAP, LBN_DBLCLK, LBN_SELCHANGE, LBS_NOTIFY, LB_ADDSTRING, LB_GETCURSEL,
-                LB_RESETCONTENT, LB_SETCURSEL, LR_LOADFROMFILE, MB_ICONERROR, MB_ICONQUESTION,
-                MB_OK, MB_YESNO, MINMAXINFO, SET_WINDOW_POS_FLAGS, STM_SETIMAGE, SWP_NOACTIVATE,
-                SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_RESTORE, SW_SHOW,
-                WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORSTATIC,
-                WM_DESTROY, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCCREATE, WM_PAINT,
-                WM_SETFONT, WM_SIZE, WM_SYSKEYDOWN, WM_TIMER, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS,
-                WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE,
+                LB_RESETCONTENT, LB_SETCURSEL, LR_LOADFROMFILE,
+                MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_YESNO, MINMAXINFO, SET_WINDOW_POS_FLAGS,
+                STM_SETIMAGE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+                SW_HIDE, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND,
+                WM_CREATE, WM_CTLCOLORSTATIC, WM_DESTROY, WM_ERASEBKGND, WM_GETMINMAXINFO,
+                WM_KEYDOWN, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SIZE, WM_SYSKEYDOWN, WM_TIMER,
+                WNDCLASSW, WS_BORDER, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+                WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
             },
         },
     },
@@ -71,6 +71,7 @@ const LBS_NOINTEGRALHEIGHT_STYLE: i32 = 0x0100;
 const WM_DRAWITEM_MSG: u32 = 0x002B;
 const WM_MEASUREITEM_MSG: u32 = 0x002C;
 const LB_GETTEXT_MSG: u32 = 0x0189;
+const LB_SETTOPINDEX_MSG: u32 = 0x0197;
 const ODS_SELECTED_FLAG: u32 = 0x0001;
 const ODS_DISABLED_FLAG: u32 = 0x0004;
 const UI_STROKE_WIDTH: i32 = 2;
@@ -103,6 +104,7 @@ const ID_LANGUAGE_COMBO: i32 = 1101;
 const ID_RESET_BUTTON: i32 = 1102;
 const ID_LOG_CHECK: i32 = 1103;
 const ID_SETTINGS_LANGUAGE_LABEL: i32 = 1104;
+const ID_LANGUAGE_MENU: i32 = 1105;
 const ID_HOTKEY_PANEL_BG: i32 = 1198;
 const ID_HOTKEY_PANEL_TITLE: i32 = 1199;
 const ID_HOTKEY_APPLY: i32 = 1202;
@@ -112,12 +114,15 @@ const ID_HOTKEY_CURRENT_LABEL: i32 = 1205;
 const ID_HOTKEY_CURRENT_VALUE: i32 = 1206;
 const ID_HOTKEY_NEW_LABEL: i32 = 1207;
 const ID_HOTKEY_NEW_VALUE: i32 = 1208;
+const ID_LOG_EDIT: i32 = 1301;
+const EM_SETSEL_MSG: u32 = 0x00B1;
+const EM_REPLACESEL_MSG: u32 = 0x00C2;
+const PROFILE_ROW_HEIGHT: i32 = 28;
 
 #[derive(Clone, Copy)]
 enum UiString {
     WindowTitle,
     Profiles,
-    AddProfile,
     Hotkey,
     Change,
     Scale,
@@ -134,7 +139,6 @@ enum UiString {
     NewHotkey,
     ResetQuestion,
     NewProfile,
-    DeleteProfile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,7 +207,7 @@ impl SettingsUiWindow {
                 WINDOW_EX_STYLE(0),
                 w!("DodbogiSettingsWindow"),
                 PCWSTR(title.as_ptr()),
-                WS_OVERLAPPEDWINDOW,
+                WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 760,
@@ -251,6 +255,94 @@ impl SettingsUiWindow {
     pub fn hwnd(&self) -> isize {
         self.hwnd
     }
+
+    pub fn is_foreground(&self) -> bool {
+        unsafe { GetForegroundWindow() == hwnd_from_raw(self.hwnd) }
+    }
+}
+
+#[derive(Debug)]
+pub struct LogOutputWindow {
+    hwnd: isize,
+}
+
+impl LogOutputWindow {
+    pub fn show(log_file: &Path) -> Result<Self, String> {
+        let mut slot = log_slot()
+            .lock()
+            .map_err(|_| "log output UI lock poisoned".to_string())?;
+        if let Some(state) = slot.as_ref() {
+            let hwnd = hwnd_from_raw(state.hwnd);
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+                let _ = ShowWindow(hwnd, SW_SHOW);
+                let _ = SetForegroundWindow(hwnd);
+            }
+            return Ok(Self { hwnd: state.hwnd });
+        }
+
+        register_log_window_class()?;
+        let instance = unsafe { GetModuleHandleW(None) }
+            .map_err(|error| format!("GetModuleHandleW failed: {error:?}"))?;
+        let title = wide_null("Dodbogi 로그");
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("DodbogiLogWindow"),
+                PCWSTR(title.as_ptr()),
+                WS_OVERLAPPEDWINDOW,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                760,
+                420,
+                None,
+                None,
+                Some(HINSTANCE(instance.0)),
+                None,
+            )
+        }
+        .map_err(|error| format!("CreateWindowExW log window failed: {error:?}"))?;
+
+        let edit = create_log_edit(hwnd)?;
+        let _ = send(edit, WM_SETFONT, sketch_font_object().0 as usize, 1);
+        set_text(edit, &recent_log_text(log_file));
+        *slot = Some(LogOutputState {
+            hwnd: raw_from_hwnd(hwnd),
+            edit_hwnd: raw_from_hwnd(edit),
+        });
+        drop(slot);
+        layout_log_window(hwnd);
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_SHOW);
+        }
+        Ok(Self {
+            hwnd: raw_from_hwnd(hwnd),
+        })
+    }
+
+    pub fn hide(&self) {
+        unsafe {
+            let _ = ShowWindow(hwnd_from_raw(self.hwnd), SW_HIDE);
+        }
+    }
+
+    pub fn append_line(&self, line: &str) {
+        let Ok(slot) = log_slot().lock() else {
+            return;
+        };
+        let Some(state) = slot.as_ref() else {
+            return;
+        };
+        if state.hwnd != self.hwnd {
+            return;
+        }
+        append_log_text(hwnd_from_raw(state.edit_hwnd), line);
+    }
+}
+
+struct LogOutputState {
+    hwnd: isize,
+    edit_hwnd: isize,
 }
 
 pub fn drain_settings_ui_events() -> Vec<SettingsUiEvent> {
@@ -269,7 +361,10 @@ struct SettingsUiState {
     loading: bool,
     settings_panel_visible: bool,
     hotkey_panel_visible: bool,
+    language_menu_visible: bool,
     pending_hotkey: Option<String>,
+    rename_enter_down: bool,
+    rename_escape_down: bool,
 }
 
 impl SettingsUiState {
@@ -288,7 +383,10 @@ impl SettingsUiState {
             loading: false,
             settings_panel_visible: false,
             hotkey_panel_visible: false,
+            language_menu_visible: false,
             pending_hotkey: None,
+            rename_enter_down: false,
+            rename_escape_down: false,
         }
     }
 }
@@ -297,6 +395,7 @@ static SETTINGS_UI_STATE: OnceLock<Mutex<Option<SettingsUiState>>> = OnceLock::n
 static SETTINGS_UI_EVENTS: OnceLock<Mutex<Vec<SettingsUiEvent>>> = OnceLock::new();
 static SETTINGS_PANEL_PAINT_VISIBLE: AtomicBool = AtomicBool::new(false);
 static HOTKEY_PANEL_PAINT_VISIBLE: AtomicBool = AtomicBool::new(false);
+static LOG_OUTPUT_STATE: OnceLock<Mutex<Option<LogOutputState>>> = OnceLock::new();
 
 fn state_slot() -> &'static Mutex<Option<SettingsUiState>> {
     SETTINGS_UI_STATE.get_or_init(|| Mutex::new(None))
@@ -306,6 +405,10 @@ fn event_slot() -> &'static Mutex<Vec<SettingsUiEvent>> {
     SETTINGS_UI_EVENTS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+fn log_slot() -> &'static Mutex<Option<LogOutputState>> {
+    LOG_OUTPUT_STATE.get_or_init(|| Mutex::new(None))
+}
+
 fn ui_text(lang: &str, key: UiString) -> &'static str {
     let english = lang.eq_ignore_ascii_case("en");
     match (english, key) {
@@ -313,8 +416,6 @@ fn ui_text(lang: &str, key: UiString) -> &'static str {
         (false, UiString::WindowTitle) => "Dodbogi 설정",
         (true, UiString::Profiles) => "Profiles",
         (false, UiString::Profiles) => "프로파일",
-        (true, UiString::AddProfile) => "+ New profile",
-        (false, UiString::AddProfile) => "+새 프로파일",
         (true, UiString::Hotkey) => "Hotkey",
         (false, UiString::Hotkey) => "단축키",
         (true, UiString::Change) => "Change",
@@ -347,8 +448,6 @@ fn ui_text(lang: &str, key: UiString) -> &'static str {
         (false, UiString::ResetQuestion) => "설정을 기본값으로 초기화할까요?",
         (true, UiString::NewProfile) => "New profile",
         (false, UiString::NewProfile) => "새 프로파일",
-        (true, UiString::DeleteProfile) => "Delete",
-        (false, UiString::DeleteProfile) => "삭제",
     }
 }
 
@@ -429,6 +528,7 @@ fn register_window_class() -> Result<(), String> {
             WM_TIMER => {
                 if wparam.0 == ID_LIVE_APPLY_TIMER {
                     let _ = poll_hotkey_capture(hwnd);
+                    poll_rename_edit_keys(hwnd);
                     apply_live_edits_from_controls(hwnd);
                     return LRESULT(0);
                 }
@@ -463,7 +563,7 @@ fn register_window_class() -> Result<(), String> {
         .map_err(|error| format!("GetModuleHandleW failed: {error:?}"))?;
     let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }.ok();
     let wc = WNDCLASSW {
-        style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
+        style: CS_DBLCLKS,
         lpfnWndProc: Some(wnd_proc),
         hInstance: HINSTANCE(instance.0),
         hCursor: cursor.unwrap_or_default(),
@@ -479,6 +579,116 @@ fn register_window_class() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn register_log_window_class() -> Result<(), String> {
+    unsafe extern "system" fn wnd_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        match msg {
+            WM_CREATE => LRESULT(0),
+            WM_SIZE => {
+                layout_log_window(hwnd);
+                LRESULT(0)
+            }
+            WM_ERASEBKGND => {
+                erase_background(hwnd, HDC(wparam.0 as *mut _));
+                LRESULT(1)
+            }
+            WM_CLOSE => {
+                unsafe {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                }
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                if let Ok(mut slot) = log_slot().lock() {
+                    *slot = None;
+                }
+                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            }
+            _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+        }
+    }
+
+    let instance = unsafe { GetModuleHandleW(None) }
+        .map_err(|error| format!("GetModuleHandleW failed: {error:?}"))?;
+    let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }.ok();
+    let wc = WNDCLASSW {
+        style: CS_HREDRAW | CS_VREDRAW,
+        lpfnWndProc: Some(wnd_proc),
+        hInstance: HINSTANCE(instance.0),
+        hCursor: cursor.unwrap_or_default(),
+        hbrBackground: HBRUSH(unsafe { GetStockObject(WHITE_BRUSH) }.0),
+        lpszClassName: w!("DodbogiLogWindow"),
+        ..Default::default()
+    };
+    let atom = unsafe { RegisterClassW(&wc) };
+    if atom == 0 {
+        let err = unsafe { GetLastError() };
+        if err.0 != 1410 {
+            return Err(format!("RegisterClassW log window failed: {err:?}"));
+        }
+    }
+    Ok(())
+}
+
+fn create_log_edit(hwnd: HWND) -> Result<HWND, String> {
+    create_child(
+        hwnd,
+        w!("EDIT"),
+        "",
+        style(
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | WS_VSCROLL,
+            &[ES_MULTILINE, ES_AUTOVSCROLL, ES_READONLY],
+        ),
+        12,
+        12,
+        720,
+        360,
+        ID_LOG_EDIT,
+    )
+}
+
+fn layout_log_window(hwnd: HWND) {
+    let mut client = RECT::default();
+    let _ = unsafe { GetClientRect(hwnd, &mut client) };
+    let margin = 12;
+    move_child(
+        hwnd,
+        ID_LOG_EDIT,
+        margin,
+        margin,
+        (client.right - client.left - margin * 2).max(120),
+        (client.bottom - client.top - margin * 2).max(80),
+    );
+}
+
+fn recent_log_text(path: &Path) -> String {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return String::new();
+    };
+    let mut lines = raw.lines().rev().take(300).collect::<Vec<_>>();
+    lines.reverse();
+    let mut text = lines.join("\r\n");
+    if !text.is_empty() {
+        text.push_str("\r\n");
+    }
+    text
+}
+
+fn append_log_text(edit: HWND, line: &str) {
+    if edit.0.is_null() {
+        return;
+    }
+    let mut text = line.replace("\r\n", "\n").replace('\r', "\n");
+    text.push_str("\r\n");
+    let wide = wide_null(&text);
+    let _ = send(edit, EM_SETSEL_MSG, usize::MAX, -1);
+    let _ = send(edit, EM_REPLACESEL_MSG, 0, wide.as_ptr() as isize);
 }
 
 fn apply_min_track_size(lparam: LPARAM) {
@@ -523,7 +733,7 @@ fn current_layout(hwnd: HWND) -> UiLayout {
     let sidebar_w = (client_w / 5).clamp(164, 220).min((client_w / 3).max(140));
     let sidebar_x = margin;
     let sidebar_y = 84;
-    let profile_button_stack_h = 74;
+    let profile_button_stack_h = 18;
     let sidebar_h = (client_h - sidebar_y - profile_button_stack_h - margin * 2).max(180);
     let content_x = sidebar_x + sidebar_w + margin;
     let content_y = 64;
@@ -554,7 +764,7 @@ fn current_layout(hwnd: HWND) -> UiLayout {
     };
     let modal_w = (content_w - 48).max(340).clamp(340, 440);
     let settings_w = modal_w;
-    let settings_h = 238;
+    let settings_h = 278;
     let modal_top = (row1_top - 18).clamp(content_y + 26, content_panel.bottom - settings_h - 18);
     let settings_left = content_x + ((content_w - settings_w) / 2).max(24);
     let settings_panel = RECT {
@@ -599,31 +809,17 @@ fn layout_controls(hwnd: HWND) {
         140,
         24,
     );
+    let (profile_count, selected_index, modal_active) = sidebar_layout_state(hwnd);
+    let list_rect = profile_list_rect(&layout, profile_count);
     move_child(
         hwnd,
         ID_PROFILE_LIST,
-        layout.sidebar_x + 4,
-        layout.sidebar_y + 4,
-        layout.sidebar_w - 8,
-        layout.sidebar_h - 8,
+        list_rect.left,
+        list_rect.top,
+        list_rect.right - list_rect.left,
+        list_rect.bottom - list_rect.top,
     );
-    let bottom_y = layout.sidebar_y + layout.sidebar_h + 16;
-    move_child(
-        hwnd,
-        ID_ADD_PROFILE,
-        layout.sidebar_x,
-        bottom_y,
-        layout.sidebar_w,
-        34,
-    );
-    move_child(
-        hwnd,
-        ID_DELETE_PROFILE,
-        layout.sidebar_x,
-        bottom_y + 40,
-        layout.sidebar_w,
-        34,
-    );
+    layout_profile_buttons(hwnd, &layout, profile_count, selected_index, modal_active);
     move_child(hwnd, ID_SETTINGS_BUTTON, settings_x, toolbar_y, 44, 30);
     move_child(hwnd, ID_TRAY_BUTTON, tray_x, toolbar_y, 44, 30);
 
@@ -636,6 +832,10 @@ fn layout_controls(hwnd: HWND) {
     let action_x = hotkey.right - 100;
     let hotkey_value_w = (action_x - value_x - 18).clamp(116, 240);
     let scale_edit_frame = scale_edit_frame_rect(&layout);
+    let hotkey_text_y = row_text_y(&hotkey);
+    let scale_text_y = row_text_y(&scale);
+    let hotkey_button_y = row_button_y(&hotkey, 32);
+    let scale_button_y = row_button_y(&scale, 28);
 
     move_child(
         hwnd,
@@ -645,12 +845,12 @@ fn layout_controls(hwnd: HWND) {
         ROW_ICON_SIZE,
         ROW_ICON_SIZE,
     );
-    move_child(hwnd, ID_HOTKEY_LABEL, label_x, hotkey.top + 18, label_w, 24);
+    move_child(hwnd, ID_HOTKEY_LABEL, label_x, hotkey_text_y, label_w, 24);
     move_child(
         hwnd,
         ID_HOTKEY_MOD_PRIMARY,
         value_x,
-        hotkey.top + 18,
+        hotkey_text_y,
         hotkey_value_w,
         24,
     );
@@ -658,12 +858,12 @@ fn layout_controls(hwnd: HWND) {
         hwnd,
         ID_HOTKEY_MOD_SECONDARY,
         value_x,
-        hotkey.top + 18,
+        hotkey_text_y,
         1,
         1,
     );
-    move_child(hwnd, ID_HOTKEY_KEY, value_x, hotkey.top + 18, 1, 1);
-    move_child(hwnd, ID_HOTKEY_CHANGE, action_x, hotkey.top + 13, 84, 32);
+    move_child(hwnd, ID_HOTKEY_KEY, value_x, hotkey_text_y, 1, 1);
+    move_child(hwnd, ID_HOTKEY_CHANGE, action_x, hotkey_button_y, 84, 32);
 
     move_child(
         hwnd,
@@ -673,7 +873,7 @@ fn layout_controls(hwnd: HWND) {
         ROW_ICON_SIZE,
         ROW_ICON_SIZE,
     );
-    move_child(hwnd, ID_SCALE_LABEL, label_x, scale.top + 18, label_w, 24);
+    move_child(hwnd, ID_SCALE_LABEL, label_x, scale_text_y, label_w, 24);
     move_child(
         hwnd,
         ID_SCALE_EDIT,
@@ -686,12 +886,12 @@ fn layout_controls(hwnd: HWND) {
         hwnd,
         ID_SCALE_PERCENT,
         scale_edit_frame.right + 12,
-        scale.top + 18,
+        scale_text_y,
         40,
         24,
     );
-    move_child(hwnd, ID_SCALE_UP, action_x, scale.top + 13, 38, 28);
-    move_child(hwnd, ID_SCALE_DOWN, action_x + 46, scale.top + 13, 38, 28);
+    move_child(hwnd, ID_SCALE_UP, action_x, scale_button_y, 38, 28);
+    move_child(hwnd, ID_SCALE_DOWN, action_x + 46, scale_button_y, 38, 28);
 
     let sp = layout.settings_panel;
     move_child(
@@ -718,9 +918,10 @@ fn layout_controls(hwnd: HWND) {
         86,
         24,
     );
-    move_child(hwnd, ID_LANGUAGE_COMBO, sp.left + 126, sp.top + 62, 190, 88);
-    move_child(hwnd, ID_RESET_BUTTON, sp.left + 28, sp.top + 110, 186, 34);
-    move_child(hwnd, ID_LOG_CHECK, sp.left + 28, sp.top + 154, 160, 28);
+    move_child(hwnd, ID_LANGUAGE_COMBO, sp.left + 126, sp.top + 58, 196, 32);
+    move_child(hwnd, ID_LANGUAGE_MENU, sp.left + 126, sp.top + 92, 196, 58);
+    move_child(hwnd, ID_RESET_BUTTON, sp.left + 28, sp.top + 156, 186, 34);
+    move_child(hwnd, ID_LOG_CHECK, sp.left + 28, sp.top + 200, 160, 28);
     move_child(
         hwnd,
         ID_SETTINGS_CLOSE,
@@ -809,6 +1010,93 @@ fn move_child(parent: HWND, id: i32, x: i32, y: i32, w: i32, h: i32) {
     let _ = unsafe { SetWindowPos(child, None, x, y, w, h, flags) };
 }
 
+fn sidebar_layout_state(hwnd: HWND) -> (usize, usize, bool) {
+    let Ok(slot) = state_slot().try_lock() else {
+        return (1, 0, false);
+    };
+    let Some(state) = slot.as_ref() else {
+        return (1, 0, false);
+    };
+    if state.hwnd != raw_from_hwnd(hwnd) {
+        return (1, 0, false);
+    }
+    (
+        profiles(&state.settings).len(),
+        state.selected_index,
+        state.settings_panel_visible || state.hotkey_panel_visible,
+    )
+}
+
+fn layout_profile_buttons_for_state(state: &SettingsUiState) {
+    let hwnd = hwnd_from_raw(state.hwnd);
+    let layout = current_layout(hwnd);
+    let profile_count = profiles(&state.settings).len();
+    let list_rect = profile_list_rect(&layout, profile_count);
+    move_child(
+        hwnd,
+        ID_PROFILE_LIST,
+        list_rect.left,
+        list_rect.top,
+        list_rect.right - list_rect.left,
+        list_rect.bottom - list_rect.top,
+    );
+    layout_profile_buttons(
+        hwnd,
+        &layout,
+        profile_count,
+        state.selected_index,
+        state.settings_panel_visible || state.hotkey_panel_visible,
+    );
+}
+
+fn layout_profile_buttons(
+    hwnd: HWND,
+    layout: &UiLayout,
+    profile_count: usize,
+    selected_index: usize,
+    modal_active: bool,
+) {
+    let list_rect = profile_list_rect(layout, profile_count);
+    let add_y = (list_rect.bottom + 2)
+        .min(layout.sidebar_y + layout.sidebar_h - 38)
+        .max(layout.sidebar_y + 8);
+    move_child(
+        hwnd,
+        ID_ADD_PROFILE,
+        layout.sidebar_x + 8,
+        add_y,
+        layout.sidebar_w - 16,
+        28,
+    );
+    let delete_y = list_rect.top + selected_index as i32 * PROFILE_ROW_HEIGHT;
+    move_child(
+        hwnd,
+        ID_DELETE_PROFILE,
+        layout.sidebar_x + layout.sidebar_w - 36,
+        delete_y,
+        26,
+        PROFILE_ROW_HEIGHT,
+    );
+    show_child(hwnd, ID_ADD_PROFILE, true);
+    show_child(hwnd, ID_DELETE_PROFILE, selected_index > 0);
+    set_child_enabled(hwnd, ID_ADD_PROFILE, !modal_active);
+    set_child_enabled(hwnd, ID_DELETE_PROFILE, !modal_active && selected_index > 0);
+    raise_child(hwnd, ID_ADD_PROFILE);
+    raise_child(hwnd, ID_DELETE_PROFILE);
+    invalidate_sidebar(hwnd, layout);
+}
+
+fn profile_list_rect(layout: &UiLayout, profile_count: usize) -> RECT {
+    let rows_h = (profile_count.max(1) as i32 * PROFILE_ROW_HEIGHT)
+        .min((layout.sidebar_h - 48).max(PROFILE_ROW_HEIGHT + 4));
+    RECT {
+        left: layout.sidebar_x + 8,
+        top: layout.sidebar_y + 6,
+        right: layout.sidebar_x + layout.sidebar_w - 44,
+        bottom: layout.sidebar_y + 6 + rows_h,
+    }
+}
+
 fn scale_edit_frame_rect(layout: &UiLayout) -> RECT {
     let hotkey = layout.hotkey_row;
     let scale = layout.scale_row;
@@ -819,9 +1107,29 @@ fn scale_edit_frame_rect(layout: &UiLayout) -> RECT {
     let scale_edit_w = (action_x - value_x - 58).clamp(72, 108);
     RECT {
         left: value_x - 7,
-        top: scale.top + 10,
+        top: row_button_y(&scale, 32),
         right: value_x + scale_edit_w + 7,
-        bottom: scale.top + 42,
+        bottom: row_button_y(&scale, 32) + 32,
+    }
+}
+
+fn row_text_y(row: &RECT) -> i32 {
+    row.top + ((row.bottom - row.top - 16) / 2).max(0)
+}
+
+fn row_button_y(row: &RECT, height: i32) -> i32 {
+    row.top + ((row.bottom - row.top - height) / 2).max(0)
+}
+
+fn invalidate_sidebar(hwnd: HWND, layout: &UiLayout) {
+    let rect = RECT {
+        left: layout.sidebar_x - 6,
+        top: layout.margin + 28,
+        right: layout.sidebar_x + layout.sidebar_w + 8,
+        bottom: layout.sidebar_y + layout.sidebar_h + 8,
+    };
+    unsafe {
+        let _ = InvalidateRect(Some(hwnd), Some(&rect), false);
     }
 }
 
@@ -929,8 +1237,8 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
     )?;
 
     create_listbox(hwnd, ID_PROFILE_LIST, 13, 76, 150, 290)?;
-    create_button(hwnd, "+새 프로파일", ID_ADD_PROFILE, 13, 389, 150, 30)?;
-    create_button(hwnd, "삭제", ID_DELETE_PROFILE, 13, 389, 72, 30)?;
+    create_button(hwnd, "+", ID_ADD_PROFILE, 13, 389, 150, 30)?;
+    create_button(hwnd, "-", ID_DELETE_PROFILE, 13, 389, 72, 30)?;
     create_edit(hwnd, ID_NAME_EDIT, 13, 76, 150, 24)?;
     show_child(hwnd, ID_NAME_EDIT, false);
 
@@ -1020,24 +1328,26 @@ fn sketch_font_object() -> HGDIOBJ {
 }
 
 fn create_global_settings_panel(hwnd: HWND) -> Result<(), String> {
-    create_panel_background(hwnd, ID_SETTINGS_PANEL_BG, 610, 90, 380, 218)?;
+    create_panel_background(hwnd, ID_SETTINGS_PANEL_BG, 610, 90, 380, 278)?;
     create_static(hwnd, "설정", 636, 112, 220, 24, ID_SETTINGS_PANEL_TITLE)?;
     create_static(hwnd, "언어", 628, 104, 70, 24, ID_SETTINGS_LANGUAGE_LABEL)?;
-    create_combo(hwnd, ID_LANGUAGE_COMBO, 700, 100, 190, 88)?;
+    create_button(hwnd, "한국어", ID_LANGUAGE_COMBO, 700, 100, 190, 32)?;
+    create_plain_listbox(hwnd, ID_LANGUAGE_MENU, 700, 132, 190, 58)?;
     create_button(
         hwnd,
         "기본값으로 초기화",
         ID_RESET_BUTTON,
         628,
-        142,
+        162,
         160,
         30,
     )?;
-    create_checkbox(hwnd, "로그 출력", ID_LOG_CHECK, 628, 180, 140, 30)?;
-    create_button(hwnd, "닫기", ID_SETTINGS_CLOSE, 808, 216, 70, 28)?;
+    create_checkbox(hwnd, "로그 출력", ID_LOG_CHECK, 628, 206, 140, 30)?;
+    create_button(hwnd, "닫기", ID_SETTINGS_CLOSE, 808, 256, 70, 28)?;
     for id in settings_panel_ids() {
         show_child(hwnd, *id, false);
     }
+    show_child(hwnd, ID_LANGUAGE_MENU, false);
     Ok(())
 }
 
@@ -1287,12 +1597,22 @@ fn create_listbox(hwnd: HWND, id: i32, x: i32, y: i32, w: i32, h: i32) -> Result
     )
 }
 
-fn create_combo(hwnd: HWND, id: i32, x: i32, y: i32, w: i32, h: i32) -> Result<HWND, String> {
+fn create_plain_listbox(
+    hwnd: HWND,
+    id: i32,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) -> Result<HWND, String> {
     create_child(
         hwnd,
-        w!("COMBOBOX"),
+        w!("LISTBOX"),
         "",
-        style(WS_CHILD | WS_VISIBLE | WS_TABSTOP, &[CBS_DROPDOWNLIST]),
+        style(
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            &[LBS_NOTIFY, LBS_NOINTEGRALHEIGHT_STYLE],
+        ),
         x,
         y,
         w,
@@ -1349,7 +1669,7 @@ fn apply_live_edits_from_controls(hwnd: HWND) {
     if state.hwnd != raw_from_hwnd(hwnd) || state.loading {
         return;
     }
-    apply_scale_from_edit(state);
+    sanitize_scale_edit(state, false);
 }
 
 fn style(base: WINDOW_STYLE, extra: &[i32]) -> WINDOW_STYLE {
@@ -1389,7 +1709,7 @@ fn measure_owner_draw_item(lparam: LPARAM) {
     }
     let item = unsafe { &mut *(lparam.0 as *mut OwnerMeasureItem) };
     if item.ctl_id as i32 == ID_PROFILE_LIST {
-        item.item_height = 28;
+        item.item_height = PROFILE_ROW_HEIGHT as u32;
     }
 }
 
@@ -1469,7 +1789,14 @@ fn draw_owner_button(item: &OwnerDrawItem) {
         },
     );
     sketch_round_rect(item.hdc, &rect, UI_RADIUS, UI_STROKE_WIDTH);
+    if id == ID_LANGUAGE_COMBO {
+        draw_owner_combo(item.hdc, &rect, &get_text(item.hwnd_item), disabled);
+        return;
+    }
     if draw_toolbar_icon(item.hdc, &rect, id, disabled) {
+        return;
+    }
+    if draw_profile_action_icon(item.hdc, &rect, id, disabled) {
         return;
     }
     let label = owner_button_label(id, &get_text(item.hwnd_item));
@@ -1483,6 +1810,74 @@ fn draw_owner_button(item: &OwnerDrawItem) {
             rgb(0, 0, 0)
         },
     );
+}
+
+fn draw_profile_action_icon(hdc: HDC, rect: &RECT, id: i32, disabled: bool) -> bool {
+    if id != ID_ADD_PROFILE && id != ID_DELETE_PROFILE {
+        return false;
+    }
+    let color = if disabled {
+        rgb(150, 150, 150)
+    } else {
+        rgb(14, 25, 32)
+    };
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    let cx = rect.left + width / 2;
+    let cy = rect.top + height / 2;
+    let len = (width.min(height) / 2).clamp(7, 12);
+    let stroke = 3;
+    let horizontal = RECT {
+        left: cx - len / 2,
+        top: cy - stroke / 2,
+        right: cx + len / 2 + 1,
+        bottom: cy + stroke / 2 + 1,
+    };
+    fill_rect_color(hdc, &horizontal, color);
+    if id == ID_ADD_PROFILE {
+        let vertical = RECT {
+            left: cx - stroke / 2,
+            top: cy - len / 2,
+            right: cx + stroke / 2 + 1,
+            bottom: cy + len / 2 + 1,
+        };
+        fill_rect_color(hdc, &vertical, color);
+    }
+    true
+}
+
+fn draw_owner_combo(hdc: HDC, rect: &RECT, label: &str, disabled: bool) {
+    let text_color = if disabled {
+        rgb(160, 160, 160)
+    } else {
+        rgb(0, 0, 0)
+    };
+    draw_text_left(hdc, label, rect.left + 12, rect.top + 7, text_color);
+    let arrow_left = rect.right - 34;
+    let divider = RECT {
+        left: arrow_left,
+        top: rect.top + 3,
+        right: arrow_left + UI_STROKE_WIDTH,
+        bottom: rect.bottom - 3,
+    };
+    fill_rect_color(hdc, &divider, rgb(18, 31, 39));
+    let cx = arrow_left + 17;
+    let cy = rect.top + ((rect.bottom - rect.top) / 2) - 2;
+    let color = if disabled {
+        rgb(150, 150, 150)
+    } else {
+        rgb(18, 31, 39)
+    };
+    for row in 0..5 {
+        let half = 4 - row;
+        let block = RECT {
+            left: cx - half,
+            top: cy + row,
+            right: cx + half + 1,
+            bottom: cy + row + 1,
+        };
+        fill_rect_color(hdc, &block, color);
+    }
 }
 
 fn owner_button_label(id: i32, text: &str) -> String {
@@ -1686,9 +2081,14 @@ fn handle_command(hwnd: HWND, wparam: WPARAM) {
         return;
     }
 
+    if id != ID_NAME_EDIT && id != ID_PROFILE_LIST {
+        commit_profile_name_edit(state, true);
+    }
+
     match id {
         ID_PROFILE_LIST if code == LBN_SELCHANGE => {
             let selected = send(get(hwnd, ID_PROFILE_LIST), LB_GETCURSEL, 0, 0);
+            commit_profile_name_edit(state, true);
             if selected >= 0 {
                 state.selected_index = selected as usize;
                 if let Some(profile) = profile_at(&state.settings, state.selected_index) {
@@ -1700,56 +2100,49 @@ fn handle_command(hwnd: HWND, wparam: WPARAM) {
                     push_event(SettingsUiEvent::HotkeysChanged);
                     push_event(SettingsUiEvent::ProfileChanged);
                 }
+                refresh_profile_list(state);
                 refresh_profile_controls(state);
+                layout_profile_buttons_for_state(state);
             }
         }
-        ID_PROFILE_LIST if code == LBN_DBLCLK => show_profile_rename_edit(state),
+        ID_PROFILE_LIST if code == LBN_DBLCLK => {
+            commit_profile_name_edit(state, true);
+            show_profile_rename_edit(state);
+        }
         ID_ADD_PROFILE if code == BN_CLICKED => {
             add_profile(state);
             let _ = save_settings(state);
-            push_event(SettingsUiEvent::HotkeysChanged);
             push_event(SettingsUiEvent::ProfileChanged);
             refresh_all_controls(state);
+            layout_profile_buttons_for_state(state);
         }
         ID_DELETE_PROFILE if code == BN_CLICKED => {
             if delete_selected_profile(state) {
                 let _ = save_settings(state);
-                push_event(SettingsUiEvent::HotkeysChanged);
                 push_event(SettingsUiEvent::ProfileChanged);
                 refresh_all_controls(state);
+                layout_profile_buttons_for_state(state);
             }
         }
-        ID_NAME_EDIT if code == EN_CHANGE || code == EN_KILLFOCUS => {
-            let name = get_text(get(hwnd, ID_NAME_EDIT)).trim().to_string();
-            if !name.is_empty() {
-                if let Some(profile) =
-                    selected_profile_mut(&mut state.settings, state.selected_index)
-                {
-                    profile.display_name = name;
-                    let _ = save_settings(state);
-                    refresh_profile_list(state);
-                }
-            }
-            if code == EN_KILLFOCUS {
-                show_child(hwnd, ID_NAME_EDIT, false);
-            }
+        ID_NAME_EDIT if code == EN_KILLFOCUS => {
+            commit_profile_name_edit(state, true);
+        }
+        ID_NAME_EDIT if code == EN_CHANGE => {
+            // Commit on Enter, focus loss, or clicking another control.  Rebuilding the listbox on
+            // every keystroke makes the owner-draw sidebar visibly flicker and can keep focus stuck
+            // inside the rename edit.
         }
         ID_HOTKEY_CHANGE if code == BN_CLICKED => show_hotkey_panel(state, true),
-        ID_SCALE_EDIT => {
-            apply_scale_from_edit(state);
-        }
+        ID_SCALE_EDIT if code == EN_CHANGE => sanitize_scale_edit(state, false),
+        ID_SCALE_EDIT if code == EN_KILLFOCUS => sanitize_scale_edit(state, true),
         ID_SCALE_UP if code == BN_CLICKED => adjust_scale(state, 10),
         ID_SCALE_DOWN if code == BN_CLICKED => adjust_scale(state, -10),
         ID_SETTINGS_BUTTON if code == BN_CLICKED => toggle_settings_panel(state),
         ID_TRAY_BUTTON if code == BN_CLICKED => hide_to_tray(hwnd),
         ID_SETTINGS_CLOSE if code == BN_CLICKED => show_settings_panel(state, false),
-        ID_LANGUAGE_COMBO if code == CBN_SELCHANGE => {
-            let selection = send(get(hwnd, ID_LANGUAGE_COMBO), CB_GETCURSEL, 0, 0);
-            state.settings.ui.language = if selection == 1 { "en" } else { "ko" }.to_string();
-            let _ = save_settings(state);
-            refresh_localized_texts(state);
-            refresh_global_controls(state);
-            push_event(SettingsUiEvent::GlobalSettingsChanged);
+        ID_LANGUAGE_COMBO if code == BN_CLICKED => toggle_language_menu(state),
+        ID_LANGUAGE_MENU if code == LBN_SELCHANGE || code == LBN_DBLCLK => {
+            apply_language_menu(state)
         }
         ID_RESET_BUTTON if code == BN_CLICKED => reset_settings(hwnd, state),
         ID_LOG_CHECK if code == BN_CLICKED => {
@@ -1772,6 +2165,19 @@ fn handle_keydown(hwnd: HWND, vk: u32) -> bool {
         return false;
     };
     if !state.hotkey_panel_visible {
+        if rename_edit_visible(state) {
+            match vk {
+                0x0D => {
+                    commit_profile_name_edit(state, true);
+                    return true;
+                }
+                0x1B => {
+                    show_child(hwnd, ID_NAME_EDIT, false);
+                    return true;
+                }
+                _ => {}
+            }
+        }
         return false;
     }
     match vk {
@@ -1797,6 +2203,38 @@ fn handle_keydown(hwnd: HWND, vk: u32) -> bool {
     }
 }
 
+fn poll_rename_edit_keys(hwnd: HWND) {
+    let Ok(mut slot) = state_slot().try_lock() else {
+        return;
+    };
+    let Some(state) = slot.as_mut() else {
+        return;
+    };
+    if state.hwnd != raw_from_hwnd(hwnd) || state.loading || !rename_edit_visible(state) {
+        state.rename_enter_down = false;
+        state.rename_escape_down = false;
+        return;
+    }
+    let edit = get(hwnd, ID_NAME_EDIT);
+    if unsafe { GetFocus() } != edit {
+        return;
+    }
+    let enter_down = key_down(0x0D);
+    if enter_down && !state.rename_enter_down {
+        commit_profile_name_edit(state, true);
+    }
+    state.rename_enter_down = enter_down;
+
+    let escape_down = key_down(0x1B);
+    if escape_down && !state.rename_escape_down {
+        state.loading = true;
+        show_child(hwnd, ID_NAME_EDIT, false);
+        state.loading = false;
+        invalidate_sidebar(hwnd, &current_layout(hwnd));
+    }
+    state.rename_escape_down = escape_down;
+}
+
 fn refresh_all_controls(state: &mut SettingsUiState) {
     refresh_localized_texts(state);
     refresh_profile_list(state);
@@ -1804,6 +2242,7 @@ fn refresh_all_controls(state: &mut SettingsUiState) {
     refresh_global_controls(state);
     show_settings_panel(state, state.settings_panel_visible);
     show_hotkey_panel(state, state.hotkey_panel_visible);
+    layout_profile_buttons_for_state(state);
 }
 
 fn refresh_localized_texts(state: &mut SettingsUiState) {
@@ -1817,14 +2256,8 @@ fn refresh_localized_texts(state: &mut SettingsUiState) {
         get(hwnd, ID_PROFILE_TITLE),
         ui_text(lang, UiString::Profiles),
     );
-    set_text(
-        get(hwnd, ID_ADD_PROFILE),
-        ui_text(lang, UiString::AddProfile),
-    );
-    set_text(
-        get(hwnd, ID_DELETE_PROFILE),
-        ui_text(lang, UiString::DeleteProfile),
-    );
+    set_text(get(hwnd, ID_ADD_PROFILE), "+");
+    set_text(get(hwnd, ID_DELETE_PROFILE), "-");
     set_text(get(hwnd, ID_HOTKEY_LABEL), ui_text(lang, UiString::Hotkey));
     set_text(get(hwnd, ID_HOTKEY_CHANGE), ui_text(lang, UiString::Change));
     set_text(get(hwnd, ID_SCALE_LABEL), ui_text(lang, UiString::Scale));
@@ -1893,6 +2326,14 @@ fn refresh_profile_list(state: &mut SettingsUiState) {
         let _ = send(list, LB_ADDSTRING, 0, name.as_ptr() as isize);
     }
     let _ = send(list, LB_SETCURSEL, state.selected_index, 0);
+    let layout = current_layout(hwnd);
+    let list_rect = profile_list_rect(&layout, profiles(&state.settings).len());
+    let visible_rows = ((list_rect.bottom - list_rect.top) / PROFILE_ROW_HEIGHT).max(1) as usize;
+    let top_index = state
+        .selected_index
+        .saturating_add(1)
+        .saturating_sub(visible_rows);
+    let _ = send(list, LB_SETTOPINDEX_MSG, top_index, 0);
     state.loading = false;
 }
 
@@ -1913,7 +2354,13 @@ fn refresh_profile_controls(state: &mut SettingsUiState) {
         get(hwnd, ID_SCALE_EDIT),
         &profile.windowed_scale_percent.to_string(),
     );
-    set_child_enabled(hwnd, ID_DELETE_PROFILE, state.selected_index > 0);
+    let modal_active = state.settings_panel_visible || state.hotkey_panel_visible;
+    show_child(hwnd, ID_DELETE_PROFILE, state.selected_index > 0);
+    set_child_enabled(
+        hwnd,
+        ID_DELETE_PROFILE,
+        !modal_active && state.selected_index > 0,
+    );
     state.loading = false;
 }
 
@@ -1923,16 +2370,22 @@ fn show_profile_rename_edit(state: &mut SettingsUiState) {
         return;
     };
     let layout = current_layout(hwnd);
-    let y = layout.sidebar_y + (state.selected_index as i32 * 18).clamp(0, layout.sidebar_h - 28);
+    let y = layout.sidebar_y
+        + 6
+        + (state.selected_index as i32 * PROFILE_ROW_HEIGHT).clamp(0, layout.sidebar_h - 32);
     let edit = get(hwnd, ID_NAME_EDIT);
     state.loading = true;
     unsafe {
         let _ = SetWindowPos(
             edit,
             None,
-            layout.sidebar_x,
+            layout.sidebar_x + 8,
             y,
-            layout.sidebar_w,
+            if state.selected_index > 0 {
+                layout.sidebar_w - 50
+            } else {
+                layout.sidebar_w - 16
+            },
             24,
             SET_WINDOW_POS_FLAGS(SWP_NOZORDER.0),
         );
@@ -1945,21 +2398,64 @@ fn show_profile_rename_edit(state: &mut SettingsUiState) {
     }
 }
 
+fn rename_edit_visible(state: &SettingsUiState) -> bool {
+    unsafe { IsWindowVisible(get(hwnd_from_raw(state.hwnd), ID_NAME_EDIT)).as_bool() }
+}
+
+fn commit_profile_name_edit(state: &mut SettingsUiState, hide: bool) {
+    if !rename_edit_visible(state) {
+        return;
+    }
+    let hwnd = hwnd_from_raw(state.hwnd);
+    let edit = get(hwnd, ID_NAME_EDIT);
+    let name = get_text(edit).trim().to_string();
+    if !name.is_empty() {
+        if let Some(profile) = selected_profile_mut(&mut state.settings, state.selected_index) {
+            if profile.display_name != name {
+                profile.display_name = name;
+                let _ = save_settings(state);
+                refresh_profile_list(state);
+                push_event(SettingsUiEvent::ProfileChanged);
+            }
+        }
+    }
+    if hide {
+        state.loading = true;
+        show_child(hwnd, ID_NAME_EDIT, false);
+        state.loading = false;
+        invalidate_sidebar(hwnd, &current_layout(hwnd));
+    }
+}
+
 fn refresh_global_controls(state: &mut SettingsUiState) {
     let hwnd = hwnd_from_raw(state.hwnd);
-    let combo = get(hwnd, ID_LANGUAGE_COMBO);
+    let button = get(hwnd, ID_LANGUAGE_COMBO);
+    let menu = get(hwnd, ID_LANGUAGE_MENU);
     state.loading = true;
     let korean = wide_null("한국어");
     let english = wide_null("English");
-    let _ = send(combo, CB_RESETCONTENT, 0, 0);
-    let _ = send(combo, CB_ADDSTRING, 0, korean.as_ptr() as isize);
-    let _ = send(combo, CB_ADDSTRING, 0, english.as_ptr() as isize);
+    let _ = send(menu, LB_RESETCONTENT, 0, 0);
+    let _ = send(menu, LB_ADDSTRING, 0, korean.as_ptr() as isize);
+    let _ = send(menu, LB_ADDSTRING, 0, english.as_ptr() as isize);
     let selected = if state.settings.ui.language.eq_ignore_ascii_case("en") {
         1
     } else {
         0
     };
-    let _ = send(combo, CB_SETCURSEL, selected, 0);
+    let _ = send(menu, LB_SETCURSEL, selected, 0);
+    set_text(
+        button,
+        if selected == 1 {
+            "English"
+        } else {
+            "한국어"
+        },
+    );
+    show_child(
+        hwnd,
+        ID_LANGUAGE_MENU,
+        state.settings_panel_visible && state.language_menu_visible,
+    );
     let checked = if state.settings.ui.log_output_enabled {
         1
     } else {
@@ -1980,12 +2476,22 @@ fn show_settings_panel(state: &mut SettingsUiState, visible: bool) {
         for id in hotkey_panel_ids() {
             show_child(hwnd, *id, false);
         }
+    } else {
+        state.language_menu_visible = false;
     }
     for id in settings_panel_ids() {
         show_child(hwnd, *id, visible);
     }
+    show_child(
+        hwnd,
+        ID_LANGUAGE_MENU,
+        visible && state.language_menu_visible,
+    );
     if visible {
         raise_panel_children(hwnd, settings_panel_ids());
+        if state.language_menu_visible {
+            raise_child(hwnd, ID_LANGUAGE_MENU);
+        }
     }
     update_modal_base_enabled(state);
     refresh_localized_texts(state);
@@ -1997,6 +2503,35 @@ fn toggle_settings_panel(state: &mut SettingsUiState) {
     show_settings_panel(state, visible);
 }
 
+fn toggle_language_menu(state: &mut SettingsUiState) {
+    if !state.settings_panel_visible {
+        return;
+    }
+    state.language_menu_visible = !state.language_menu_visible;
+    let hwnd = hwnd_from_raw(state.hwnd);
+    show_child(hwnd, ID_LANGUAGE_MENU, state.language_menu_visible);
+    if state.language_menu_visible {
+        raise_child(hwnd, ID_LANGUAGE_MENU);
+    }
+    refresh_global_controls(state);
+    invalidate(hwnd);
+}
+
+fn apply_language_menu(state: &mut SettingsUiState) {
+    let hwnd = hwnd_from_raw(state.hwnd);
+    let selection = send(get(hwnd, ID_LANGUAGE_MENU), LB_GETCURSEL, 0, 0);
+    if selection < 0 {
+        return;
+    }
+    state.settings.ui.language = if selection == 1 { "en" } else { "ko" }.to_string();
+    state.language_menu_visible = false;
+    let _ = save_settings(state);
+    refresh_localized_texts(state);
+    refresh_global_controls(state);
+    show_child(hwnd, ID_LANGUAGE_MENU, false);
+    push_event(SettingsUiEvent::GlobalSettingsChanged);
+}
+
 fn show_hotkey_panel(state: &mut SettingsUiState, visible: bool) {
     state.hotkey_panel_visible = visible;
     HOTKEY_PANEL_PAINT_VISIBLE.store(visible, Ordering::Relaxed);
@@ -2004,9 +2539,11 @@ fn show_hotkey_panel(state: &mut SettingsUiState, visible: bool) {
     if visible {
         state.settings_panel_visible = false;
         SETTINGS_PANEL_PAINT_VISIBLE.store(false, Ordering::Relaxed);
+        state.language_menu_visible = false;
         for id in settings_panel_ids() {
             show_child(hwnd, *id, false);
         }
+        show_child(hwnd, ID_LANGUAGE_MENU, false);
         state.pending_hotkey = profile_at(&state.settings, state.selected_index)
             .map(|profile| profile.windowed_hotkey.clone());
     } else {
@@ -2044,13 +2581,36 @@ fn apply_pending_hotkey(state: &mut SettingsUiState) {
     push_event(SettingsUiEvent::HotkeysChanged);
 }
 
-fn apply_scale_from_edit(state: &mut SettingsUiState) {
-    let raw = get_text(get(hwnd_from_raw(state.hwnd), ID_SCALE_EDIT));
-    let Ok(value) = raw.trim().parse::<u32>() else {
+fn sanitize_scale_edit(state: &mut SettingsUiState, commit: bool) {
+    let hwnd = hwnd_from_raw(state.hwnd);
+    let edit = get(hwnd, ID_SCALE_EDIT);
+    let raw = get_text(edit);
+    let digits: String = raw.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    if digits != raw {
+        replace_scale_edit_text(state, &digits);
+        return;
+    }
+    if digits.is_empty() {
+        if commit {
+            restore_scale_edit_text(state);
+        }
+        return;
+    }
+    let Ok(mut value) = digits.parse::<u32>() else {
+        restore_scale_edit_text(state);
         return;
     };
-    if !(50..=500).contains(&value) {
-        return;
+    if value > 500 {
+        value = 500;
+        replace_scale_edit_text(state, &value.to_string());
+    }
+    if value < 50 {
+        if commit {
+            value = 50;
+            replace_scale_edit_text(state, &value.to_string());
+        } else {
+            return;
+        }
     }
     if let Some(profile) = selected_profile_mut(&mut state.settings, state.selected_index) {
         if profile.windowed_scale_percent != value {
@@ -2059,6 +2619,22 @@ fn apply_scale_from_edit(state: &mut SettingsUiState) {
             push_event(SettingsUiEvent::ProfileChanged);
         }
     }
+}
+
+fn replace_scale_edit_text(state: &mut SettingsUiState, text: &str) {
+    let edit = get(hwnd_from_raw(state.hwnd), ID_SCALE_EDIT);
+    state.loading = true;
+    set_text(edit, text);
+    let len = text.encode_utf16().count();
+    let _ = send(edit, EM_SETSEL_MSG, len, len as isize);
+    state.loading = false;
+}
+
+fn restore_scale_edit_text(state: &mut SettingsUiState) {
+    let text = profile_at(&state.settings, state.selected_index)
+        .map(|profile| profile.windowed_scale_percent.to_string())
+        .unwrap_or_else(|| "200".to_string());
+    replace_scale_edit_text(state, &text);
 }
 
 fn adjust_scale(state: &mut SettingsUiState, delta: i32) {
@@ -2366,6 +2942,7 @@ fn control_ids() -> &'static [i32] {
         ID_SETTINGS_PANEL_BG,
         ID_SETTINGS_PANEL_TITLE,
         ID_LANGUAGE_COMBO,
+        ID_LANGUAGE_MENU,
         ID_RESET_BUTTON,
         ID_LOG_CHECK,
         ID_SETTINGS_LANGUAGE_LABEL,
@@ -2460,6 +3037,9 @@ fn update_modal_base_enabled(state: &SettingsUiState) {
     }
     for id in base_interaction_ids() {
         let enabled = !modal_active && (*id != ID_DELETE_PROFILE || state.selected_index > 0);
+        if *id == ID_DELETE_PROFILE {
+            show_child(hwnd, *id, state.selected_index > 0);
+        }
         set_child_enabled(hwnd, *id, enabled);
     }
 }
@@ -2515,14 +3095,7 @@ fn hide_to_tray(hwnd: HWND) {
 
 fn invalidate(hwnd: HWND) {
     unsafe {
-        let _ = RedrawWindow(
-            Some(hwnd),
-            None,
-            None,
-            RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_ERASENOW | RDW_UPDATENOW,
-        );
-        let _ = InvalidateRect(Some(hwnd), None, true);
-        let _ = UpdateWindow(hwnd);
+        let _ = InvalidateRect(Some(hwnd), None, false);
     }
 }
 
@@ -2538,12 +3111,7 @@ fn set_text(hwnd: HWND, text: &str) {
     let text = wide_null(text);
     unsafe {
         let _ = SetWindowTextW(hwnd, PCWSTR(text.as_ptr()));
-        let _ = RedrawWindow(
-            Some(hwnd),
-            None,
-            None,
-            RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW,
-        );
+        let _ = RedrawWindow(Some(hwnd), None, None, RDW_INVALIDATE);
     }
 }
 

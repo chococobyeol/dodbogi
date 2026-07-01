@@ -478,7 +478,10 @@ mod imp {
         }
     }
 
-    fn remember_cursor_speed_guard(origin_speed: i32, guard_path: Option<&Path>) {
+    fn remember_cursor_speed_guard(
+        origin_speed: i32,
+        guard_path: Option<&Path>,
+    ) -> Result<(), Win32Error> {
         install_cursor_speed_console_handler();
         let origin_speed = origin_speed.clamp(1, 20);
         let _ = CURSOR_SPEED_RESTORE_AT_EXIT.compare_exchange(
@@ -488,8 +491,9 @@ mod imp {
             Ordering::SeqCst,
         );
         if let Some(path) = guard_path {
-            let _ = write_cursor_speed_guard(path, origin_speed);
+            write_cursor_speed_guard(path, origin_speed)?;
         }
+        Ok(())
     }
 
     fn clear_cursor_speed_guard(origin_speed: i32, guard_path: Option<&Path>) {
@@ -1666,25 +1670,43 @@ mod imp {
                 );
             }
 
+            let origin_was_untracked = self.origin_cursor_speed.is_none();
+            if origin_was_untracked {
+                self.origin_cursor_speed = Some(origin_speed);
+                if let Err(error) = remember_cursor_speed_guard(
+                    origin_speed,
+                    self.cursor_speed_guard_path.as_deref(),
+                ) {
+                    self.origin_cursor_speed = None;
+                    return format!(
+                        "cursor_speed_adjust_failed origin={} target={} scale={scale:.3} guard_error={error:?}",
+                        origin_speed, new_speed
+                    );
+                }
+            }
+
             match set_cursor_speed(new_speed) {
                 Ok(()) => {
-                    if self.origin_cursor_speed.is_none() {
-                        self.origin_cursor_speed = Some(origin_speed);
-                        remember_cursor_speed_guard(
-                            origin_speed,
-                            self.cursor_speed_guard_path.as_deref(),
-                        );
-                    }
                     self.adjusted_cursor_speed = Some(new_speed);
                     format!(
                         "cursor_speed_adjusted origin={} adjusted={} scale={scale:.3} acceleration={}",
                         origin_speed, new_speed, acceleration_on
                     )
                 }
-                Err(error) => format!(
-                    "cursor_speed_adjust_failed origin={} target={} scale={scale:.3} error={error:?}",
-                    origin_speed, new_speed
-                ),
+                Err(error) => {
+                    if origin_was_untracked {
+                        self.origin_cursor_speed = None;
+                        self.adjusted_cursor_speed = None;
+                        clear_cursor_speed_guard(
+                            origin_speed,
+                            self.cursor_speed_guard_path.as_deref(),
+                        );
+                    }
+                    format!(
+                        "cursor_speed_adjust_failed origin={} target={} scale={scale:.3} error={error:?}",
+                        origin_speed, new_speed
+                    )
+                }
             }
         }
 

@@ -50,11 +50,50 @@ use std::{
 };
 
 macro_rules! runtime_println {
-    ($enabled:expr, $($arg:tt)*) => {
-        if $enabled {
-            println!($($arg)*);
+    ($output:expr, $($arg:tt)*) => {{
+        ($output).write_line(&format!($($arg)*));
+    }};
+}
+
+struct RuntimeTextLogOutput {
+    enabled: bool,
+    window: Option<settings_ui::LogOutputWindow>,
+}
+
+impl RuntimeTextLogOutput {
+    fn new(enabled: bool, log_file: &Path) -> Self {
+        let mut output = Self {
+            enabled: false,
+            window: None,
+        };
+        output.set_enabled(enabled, log_file);
+        output
+    }
+
+    fn set_enabled(&mut self, enabled: bool, log_file: &Path) {
+        if enabled {
+            self.enabled = true;
+            if self.window.is_none() {
+                self.window = settings_ui::LogOutputWindow::show(log_file).ok();
+            }
+        } else {
+            self.enabled = false;
+            if let Some(window) = &self.window {
+                window.hide();
+            }
+            self.window = None;
         }
-    };
+    }
+
+    fn write_line(&mut self, message: &str) {
+        if !self.enabled {
+            return;
+        }
+        println!("{message}");
+        if let Some(window) = &self.window {
+            window.append_line(message);
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -827,10 +866,10 @@ fn handle_runtime_message(
     controller: &mut ProductRuntimeController,
     paths: &RuntimePaths,
     settings_window: &mut Option<settings_ui::SettingsUiWindow>,
-    console_output_enabled: bool,
+    runtime_output: &mut RuntimeTextLogOutput,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     append_log_line(&paths.log_file, &format!("shell_message={message:?}"))?;
-    runtime_println!(console_output_enabled, "Shell message: {message:?}");
+    runtime_println!(runtime_output, "Shell message: {message:?}");
 
     match message {
         ShellMessage::Hotkey { id: 1, .. }
@@ -841,6 +880,19 @@ fn handle_runtime_message(
         | ShellMessage::TrayMenu {
             item_id: "toggle-fullscreen",
         } => {
+            if matches!(message, ShellMessage::Hotkey { .. })
+                && settings_window
+                    .as_ref()
+                    .map(|window| window.is_foreground())
+                    .unwrap_or(false)
+            {
+                append_log_line(&paths.log_file, "runtime_hotkey_ignored settings_window_foreground")?;
+                runtime_println!(
+                    runtime_output,
+                    "Hotkey ignored while settings window is foreground."
+                );
+                return Ok(false);
+            }
             if let Some(stop) = controller.stop() {
                 append_log_line(
                     &paths.log_file,
@@ -850,7 +902,7 @@ fn handle_runtime_message(
                     ),
                 )?;
                 runtime_println!(
-                    console_output_enabled,
+                    runtime_output,
                     "Stopped scaling source={} presented_frames={} reason={:?}",
                     stop.source_hwnd,
                     stop.presented_frames,
@@ -876,7 +928,7 @@ fn handle_runtime_message(
                     Err(error) => {
                         let detail = format!("runtime_start_ignored detail={error}");
                         append_log_line(&paths.log_file, &detail)?;
-                        runtime_println!(console_output_enabled, "{detail}");
+                        runtime_println!(runtime_output, "{detail}");
                         return Ok(false);
                     }
                 };
@@ -893,7 +945,7 @@ fn handle_runtime_message(
                     ),
                 )?;
                 runtime_println!(
-                    console_output_enabled,
+                    runtime_output,
                     "Started {} scaling source={} frames={} surfaces={} presents={} effects={}",
                     start.mode.as_str(),
                     start.source_hwnd,
@@ -910,15 +962,11 @@ fn handle_runtime_message(
         } => {
             match settings_ui::SettingsUiWindow::show(paths.clone()) {
                 Ok(window) => {
-                    runtime_println!(
-                        console_output_enabled,
-                        "Settings window: hwnd={}",
-                        window.hwnd()
-                    );
+                    runtime_println!(runtime_output, "Settings window: hwnd={}", window.hwnd());
                     *settings_window = Some(window);
                 }
                 Err(error) => {
-                    runtime_println!(console_output_enabled, "Settings window failed: {error}");
+                    runtime_println!(runtime_output, "Settings window failed: {error}");
                     append_log_line(&paths.log_file, &format!("settings_window_error={error}"))?;
                 }
             }
@@ -928,7 +976,7 @@ fn handle_runtime_message(
             item_id: "diagnostics",
         } => {
             runtime_println!(
-                console_output_enabled,
+                runtime_output,
                 "Diagnostics log: {}",
                 paths.log_file.display()
             );
@@ -951,7 +999,7 @@ fn handle_runtime_message(
                         ),
                     )?;
                     runtime_println!(
-                        console_output_enabled,
+                        runtime_output,
                         "Screenshot saved: {}",
                         report.path.display()
                     );
@@ -959,7 +1007,7 @@ fn handle_runtime_message(
                 None => {
                     append_log_line(&paths.log_file, "screenshot_requested_no_active_session")?;
                     runtime_println!(
-                        console_output_enabled,
+                        runtime_output,
                         "Screenshot request ignored: no active scaling session."
                     );
                 }
@@ -989,7 +1037,7 @@ fn handle_runtime_message(
                         ),
                     )?;
                     runtime_println!(
-                        console_output_enabled,
+                        runtime_output,
                         "Forwarded overlay input kind={:?} source={:?} delivered={}",
                         report.kind,
                         report.source_point,
@@ -1038,68 +1086,62 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
     let mut hotkeys = HotkeyRegistry::default();
     hotkeys.register_defaults();
     let initial_settings = load_settings_from_path(&paths.settings_file)?;
-    let mut console_output_enabled = initial_settings.ui.log_output_enabled;
+    let mut runtime_output =
+        RuntimeTextLogOutput::new(initial_settings.ui.log_output_enabled, &paths.log_file);
     let mut system_hotkeys = SystemHotkeyGuard::register_from_settings(&initial_settings);
 
-    runtime_println!(console_output_enabled, "Dodbogi runtime");
-    runtime_println!(console_output_enabled, "Target parity: {}", report.target);
+    runtime_println!(runtime_output, "Dodbogi runtime");
+    runtime_println!(runtime_output, "Target parity: {}", report.target);
     runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "Support envelope: {}",
         report.envelope.description
     );
+    runtime_println!(runtime_output, "Data root: {}", paths.root.display());
     runtime_println!(
-        console_output_enabled,
-        "Data root: {}",
-        paths.root.display()
-    );
-    runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "Settings: {}",
         paths.settings_file.display()
     );
-    runtime_println!(console_output_enabled, "Log: {}", paths.log_file.display());
+    runtime_println!(runtime_output, "Log: {}", paths.log_file.display());
     runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "Tray contract installed: {}",
         tray.is_installed()
     );
     runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "Tray menu items: {}",
         tray.menu_items().len()
     );
     runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "System tray installed: {system_tray_installed}"
     );
     runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "System tray menu probe items: {system_tray_menu_probe}"
     );
+    runtime_println!(runtime_output, "System tray detail: {system_tray_detail}");
     runtime_println!(
-        console_output_enabled,
-        "System tray detail: {system_tray_detail}"
-    );
-    runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "Hotkey contract count: {}",
         hotkeys.registered().len()
     );
     runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "System hotkeys registered: {} failed: {}",
         system_hotkeys.report().registered_count(),
         system_hotkeys.report().failed_count()
     );
     runtime_println!(
-        console_output_enabled,
+        runtime_output,
         "Runtime is persistent; use tray/registered hotkeys to start/stop scaling, or Exit to quit."
     );
 
     for check in &report.checks {
         runtime_println!(
-            console_output_enabled,
+            runtime_output,
             "[{:?}] {} - {}",
             check.status,
             check.name,
@@ -1116,7 +1158,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
             &format!("cursor_speed_stale_guard_restored origin={restored_speed}"),
         )?;
         runtime_println!(
-            console_output_enabled,
+            runtime_output,
             "Restored stale cursor speed guard: {restored_speed}"
         );
     }
@@ -1131,11 +1173,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 &paths.log_file,
                 &format!("settings_window_opened_on_start hwnd={}", window.hwnd()),
             )?;
-            runtime_println!(
-                console_output_enabled,
-                "Settings window: hwnd={}",
-                window.hwnd()
-            );
+            runtime_println!(runtime_output, "Settings window: hwnd={}", window.hwnd());
             Some(window)
         }
         Err(error) => {
@@ -1143,7 +1181,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 &paths.log_file,
                 &format!("settings_window_start_error={error}"),
             )?;
-            runtime_println!(console_output_enabled, "Settings window failed: {error}");
+            runtime_println!(runtime_output, "Settings window failed: {error}");
             None
         }
     };
@@ -1162,7 +1200,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 &mut controller,
                 &paths,
                 &mut settings_window,
-                console_output_enabled,
+                &mut runtime_output,
             )? {
                 should_exit = true;
                 break;
@@ -1176,7 +1214,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
             match event {
                 settings_ui::SettingsUiEvent::HotkeysChanged => {
                     let settings = load_settings_from_path(&paths.settings_file)?;
-                    console_output_enabled = settings.ui.log_output_enabled;
+                    runtime_output.set_enabled(settings.ui.log_output_enabled, &paths.log_file);
                     system_hotkeys.replace_from_settings(&settings);
                     append_log_line(
                         &paths.log_file,
@@ -1187,7 +1225,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                         ),
                     )?;
                     runtime_println!(
-                        console_output_enabled,
+                        runtime_output,
                         "Settings hotkeys applied: registered={} failed={}",
                         system_hotkeys.report().registered_count(),
                         system_hotkeys.report().failed_count()
@@ -1195,17 +1233,17 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 settings_ui::SettingsUiEvent::ProfileChanged => {
                     let settings = load_settings_from_path(&paths.settings_file)?;
-                    console_output_enabled = settings.ui.log_output_enabled;
+                    runtime_output.set_enabled(settings.ui.log_output_enabled, &paths.log_file);
                     if let Some(detail) =
                         controller.apply_runtime_profile(active_runtime_profile(&settings))?
                     {
                         append_log_line(&paths.log_file, &detail)?;
-                        runtime_println!(console_output_enabled, "{detail}");
+                        runtime_println!(runtime_output, "{detail}");
                     }
                 }
                 settings_ui::SettingsUiEvent::GlobalSettingsChanged => {
                     let settings = load_settings_from_path(&paths.settings_file)?;
-                    console_output_enabled = settings.ui.log_output_enabled;
+                    runtime_output.set_enabled(settings.ui.log_output_enabled, &paths.log_file);
                     append_log_line(
                         &paths.log_file,
                         &format!(
@@ -1213,6 +1251,12 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                             settings.ui.language, settings.ui.log_output_enabled
                         ),
                     )?;
+                    runtime_println!(
+                        runtime_output,
+                        "Settings globals applied: language={} log_output_enabled={}",
+                        settings.ui.language,
+                        settings.ui.log_output_enabled
+                    );
                 }
                 settings_ui::SettingsUiEvent::WindowHiddenToTray => {
                     append_log_line(&paths.log_file, "settings_window_hidden_to_tray")?;
@@ -1224,7 +1268,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
             match controller.refresh_active_layout() {
                 Ok(Some(layout_event)) => {
                     append_log_line(&paths.log_file, &layout_event)?;
-                    runtime_println!(console_output_enabled, "{layout_event}");
+                    runtime_println!(runtime_output, "{layout_event}");
                 }
                 Ok(None) => {}
                 Err(error) => {
@@ -1233,7 +1277,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                         let detail =
                             format!("runtime_recoverable_error phase=layout detail={error}");
                         let _ = append_log_line(&paths.log_file, &detail);
-                        runtime_println!(console_output_enabled, "{detail}");
+                        runtime_println!(runtime_output, "{detail}");
                     }
                 }
             }
@@ -1250,7 +1294,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                         ),
                     )?;
                     runtime_println!(
-                        console_output_enabled,
+                        runtime_output,
                         "Cursor capture: captured={} source={:?} overlay={:?}",
                         cursor_event.captured,
                         cursor_event.source_point,
@@ -1264,7 +1308,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                         let detail =
                             format!("runtime_recoverable_error phase=cursor detail={error}");
                         let _ = append_log_line(&paths.log_file, &detail);
-                        runtime_println!(console_output_enabled, "{detail}");
+                        runtime_println!(runtime_output, "{detail}");
                     }
                 }
             }
@@ -1289,7 +1333,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                         let detail =
                             format!("runtime_recoverable_error phase=frame detail={error}");
                         let _ = append_log_line(&paths.log_file, &detail);
-                        runtime_println!(console_output_enabled, "{detail}");
+                        runtime_println!(runtime_output, "{detail}");
                     }
                 }
             }
@@ -1319,7 +1363,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                                 ),
                             )?;
                             runtime_println!(
-                                console_output_enabled,
+                                runtime_output,
                                 "Auto-scale started {} source={} effect={} presents={}",
                                 start.mode.as_str(),
                                 start.source_hwnd,
