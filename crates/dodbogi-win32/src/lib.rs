@@ -4,8 +4,8 @@
 //! any optional WinUI 3 shell fallback.
 
 use dodbogi_core::{
-    CheckStatus, DodbogiSettings, Dpi, MonitorGeometry, PhysicalRect, SourceWindow, StartupCheck,
-    StartupReport, SupportEnvelope, PARITY_TARGET,
+    AppProfile, CheckStatus, DodbogiSettings, Dpi, MonitorGeometry, PARITY_TARGET, PhysicalRect,
+    SourceWindow, StartupCheck, StartupReport, SupportEnvelope,
 };
 use dodbogi_input::{InputEventKind, SourceInputEvent};
 
@@ -48,6 +48,12 @@ pub struct HotkeySpec {
 
 pub const DEFAULT_WINDOWED_HOTKEY: &str = "Ctrl+Alt+Q";
 pub const DEFAULT_FULLSCREEN_HOTKEY: &str = "Ctrl+Alt+A";
+pub const DEFAULT_POINTER_MAGNIFIER_HOTKEY: &str = "Ctrl+Alt+E";
+pub const DEFAULT_WINDOW_SCREENSHOT_HOTKEY: &str = "Shift+Alt+Q";
+pub const DEFAULT_POINTER_SCREENSHOT_HOTKEY: &str = "Shift+Alt+E";
+pub const DEFAULT_POINTER_COLOR_CODE_TOGGLE_HOTKEY: &str = "Ctrl+Alt+C";
+pub const DEFAULT_POINTER_COLOR_CODE_COPY_HOTKEY: &str = "Shift+Alt+C";
+pub const DEFAULT_POINTER_CURSOR_TOGGLE_HOTKEY: &str = "Ctrl+Alt+R";
 
 pub fn default_hotkeys() -> Vec<HotkeySpec> {
     vec![
@@ -60,6 +66,36 @@ pub fn default_hotkeys() -> Vec<HotkeySpec> {
             id: 2,
             name: "fullscreen-scale-toggle",
             accelerator: DEFAULT_FULLSCREEN_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 3,
+            name: "pointer-magnifier-toggle",
+            accelerator: DEFAULT_POINTER_MAGNIFIER_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 4,
+            name: "window-screenshot",
+            accelerator: DEFAULT_WINDOW_SCREENSHOT_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 5,
+            name: "pointer-magnifier-screenshot",
+            accelerator: DEFAULT_POINTER_SCREENSHOT_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 6,
+            name: "pointer-color-code-toggle",
+            accelerator: DEFAULT_POINTER_COLOR_CODE_TOGGLE_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 7,
+            name: "pointer-color-code-copy",
+            accelerator: DEFAULT_POINTER_COLOR_CODE_COPY_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 8,
+            name: "pointer-cursor-toggle",
+            accelerator: DEFAULT_POINTER_CURSOR_TOGGLE_HOTKEY.to_string(),
         },
     ]
 }
@@ -76,7 +112,87 @@ pub fn hotkeys_from_settings(settings: &DodbogiSettings) -> Vec<HotkeySpec> {
             name: "fullscreen-scale-toggle",
             accelerator: settings.hotkeys.fullscreen_toggle.clone(),
         },
+        HotkeySpec {
+            id: 3,
+            name: "pointer-magnifier-toggle",
+            accelerator: settings.hotkeys.pointer_magnifier_toggle.clone(),
+        },
+        HotkeySpec {
+            id: 4,
+            name: "window-screenshot",
+            accelerator: settings.hotkeys.screenshot.clone(),
+        },
+        HotkeySpec {
+            id: 5,
+            name: "pointer-magnifier-screenshot",
+            accelerator: settings.hotkeys.pointer_screenshot.clone(),
+        },
+        HotkeySpec {
+            id: 6,
+            name: "pointer-color-code-toggle",
+            accelerator: settings.hotkeys.pointer_color_code_toggle.clone(),
+        },
+        HotkeySpec {
+            id: 7,
+            name: "pointer-color-code-copy",
+            accelerator: settings.hotkeys.pointer_color_code_copy.clone(),
+        },
+        HotkeySpec {
+            id: 8,
+            name: "pointer-cursor-toggle",
+            accelerator: settings.hotkeys.pointer_cursor_toggle.clone(),
+        },
     ]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PointerMagnifierConfig {
+    pub source_width: u32,
+    pub source_height: u32,
+    pub scale_percent: u32,
+    pub show_color_code: bool,
+    pub show_cursor: bool,
+}
+
+impl PointerMagnifierConfig {
+    pub fn from_profile(profile: &AppProfile) -> Self {
+        Self {
+            source_width: profile.pointer_magnifier_width,
+            source_height: profile.pointer_magnifier_height,
+            scale_percent: profile.pointer_magnifier_scale_percent,
+            show_color_code: profile.pointer_color_code_enabled,
+            show_cursor: profile.draw_cursor,
+        }
+    }
+
+    pub fn sanitized(self) -> Self {
+        Self {
+            source_width: self.source_width.clamp(1, 1200),
+            source_height: self.source_height.clamp(1, 900),
+            scale_percent: self.scale_percent.clamp(50, 1000),
+            show_color_code: self.show_color_code,
+            show_cursor: self.show_cursor,
+        }
+    }
+
+    pub fn scale_factor(self) -> f32 {
+        self.sanitized().scale_percent as f32 / 100.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PointerMagnifierUpdateReport {
+    pub source_rect: PhysicalRect,
+    pub destination_rect: PhysicalRect,
+    pub scale_percent: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PointerMagnifierScreenshotReport {
+    pub path: std::path::PathBuf,
+    pub source_rect: PhysicalRect,
+    pub output_width: u32,
+    pub output_height: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -340,11 +456,12 @@ pub struct OverlayStyleContract {
 #[cfg(windows)]
 mod imp {
     use super::{
-        default_hotkeys, default_tray_menu_items, hotkeys_from_settings, input_event_kind_name,
         ControlledInputProbeReport, CursorCaptureReport, Dpi, HotkeySpec, InputDeliveryMode,
-        InputDeliveryReport, MonitorGeometry, OverlayStyleContract, PhysicalRect, ShellMessage,
-        SourceInputEvent, SourceWindow, SystemHotkeyRegistration, SystemHotkeyReport, TrayMenuItem,
-        Win32Error,
+        InputDeliveryReport, MonitorGeometry, OverlayStyleContract, PhysicalRect,
+        PointerMagnifierConfig, PointerMagnifierScreenshotReport, PointerMagnifierUpdateReport,
+        ShellMessage, SourceInputEvent, SourceWindow, SystemHotkeyRegistration, SystemHotkeyReport,
+        TrayMenuItem, Win32Error, default_hotkeys, default_tray_menu_items, hotkeys_from_settings,
+        input_event_kind_name,
     };
     use dodbogi_core::DodbogiSettings;
     use dodbogi_input::{
@@ -358,19 +475,18 @@ mod imp {
         path::{Path, PathBuf},
         ptr::null_mut,
         sync::{
-            atomic::{AtomicI32, Ordering},
             Mutex, OnceLock,
+            atomic::{AtomicI32, Ordering},
         },
         thread,
         time::Duration,
     };
     use windows::{
-        core::{BOOL, PCSTR, PCWSTR},
         Graphics::Capture::GraphicsCaptureItem,
         Win32::{
             Foundation::{
-                GetLastError, COLORREF, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, POINT, RECT,
-                TRUE, WPARAM,
+                COLORREF, GetLastError, HANDLE, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, POINT,
+                RECT, TRUE, WPARAM,
             },
             Graphics::{
                 Direct3D::{
@@ -378,68 +494,80 @@ mod imp {
                     D3D_FEATURE_LEVEL_11_1,
                 },
                 Direct3D11::{
-                    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
-                    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
+                    ID3D11Device, ID3D11DeviceContext,
                 },
-                Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
+                Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute},
                 Dxgi::IDXGIAdapter,
                 Gdi::{
-                    BeginPaint, ClientToScreen, CreateSolidBrush, DeleteObject, EndPaint,
-                    EnumDisplayMonitors, FillRect, GetMonitorInfoW, InvalidateRect, UpdateWindow,
-                    HDC, HGDIOBJ, HMONITOR, MONITORINFO, PAINTSTRUCT,
+                    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, BitBlt, CAPTUREBLT,
+                    ClientToScreen, CombineRgn, CreateCompatibleBitmap, CreateCompatibleDC,
+                    CreatePen, CreateRectRgn, CreateSolidBrush, DIB_RGB_COLORS, DeleteDC,
+                    DeleteObject, EndPaint, EnumDisplayMonitors, FillRect, GetDC, GetDIBits,
+                    GetMonitorInfoW, GetPixel, GetStockObject, HBITMAP, HDC, HGDIOBJ, HMONITOR,
+                    HOLLOW_BRUSH, InvalidateRect, MONITORINFO, PAINTSTRUCT, PS_SOLID, RGN_OR,
+                    ROP_CODE, Rectangle, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextColor,
+                    SetWindowRgn, StretchBlt, TRANSPARENT, TextOutW, UpdateWindow,
                 },
             },
             System::{
                 Console::{
-                    SetConsoleCtrlHandler, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT,
-                    CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT,
+                    CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT,
+                    CTRL_SHUTDOWN_EVENT, SetConsoleCtrlHandler,
                 },
+                DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData},
                 LibraryLoader::{GetModuleHandleW, GetProcAddress},
+                Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
                 Threading::GetCurrentProcessId,
                 WinRT::{
-                    Graphics::Capture::IGraphicsCaptureItemInterop, RoInitialize,
-                    RO_INIT_MULTITHREADED,
+                    Graphics::Capture::IGraphicsCaptureItemInterop, RO_INIT_MULTITHREADED,
+                    RoInitialize,
                 },
             },
             UI::{
                 HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
                 Input::KeyboardAndMouse::{
-                    RegisterHotKey, SendInput, UnregisterHotKey, HOT_KEY_MODIFIERS, INPUT, INPUT_0,
-                    INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-                    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, MOUSEEVENTF_LEFTDOWN,
-                    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
-                    MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-                    MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
+                    HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
+                    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+                    MOD_SHIFT, MOD_WIN, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+                    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
+                    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
+                    RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY,
                 },
                 Magnification::{MagInitialize, MagShowSystemCursor},
                 Shell::{
-                    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
-                    NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
+                    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION,
+                    NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
                 },
                 WindowsAndMessaging::{
-                    AppendMenuW, ClipCursor, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-                    DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, GetClientRect,
-                    GetClipCursor, GetCursorInfo, GetCursorPos, GetForegroundWindow,
-                    GetGUIThreadInfo, GetIconInfo, GetWindowRect, GetWindowThreadProcessId,
-                    IsWindow, IsWindowVisible, LoadCursorW, LoadIconW, LoadImageW, PeekMessageW,
-                    PostMessageW, RegisterClassW, SetCursorPos, SetForegroundWindow,
-                    SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos, ShowCursor,
-                    SystemParametersInfoW, TranslateMessage, WindowFromPoint, CS_DBLCLKS,
-                    CS_HREDRAW, CS_VREDRAW, CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE,
-                    GWLP_HWNDPARENT, HICON, HTCLIENT, HTTRANSPARENT, HWND_TOP, HWND_TOPMOST,
-                    ICONINFO, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, LWA_ALPHA,
-                    LWA_COLORKEY, MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED, PM_REMOVE,
-                    SPI_GETMOUSE, SPI_GETMOUSESPEED, SPI_SETCURSORS, SPI_SETMOUSESPEED,
-                    SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSENDCHANGING,
-                    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-                    WM_APP, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK,
-                    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP,
-                    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK,
-                    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_USER, WNDCLASSW, WS_EX_LAYERED,
+                    AppendMenuW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CURSORINFO, ClipCursor,
+                    CreatePopupMenu, CreateWindowExW, DI_NORMAL, DefWindowProcW, DestroyMenu,
+                    DestroyWindow, DispatchMessageW, DrawIconEx, EnumWindows, GUI_INMOVESIZE,
+                    GUITHREADINFO, GWLP_HWNDPARENT, GetClientRect, GetClipCursor, GetCursorInfo,
+                    GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetIconInfo,
+                    GetSystemMetrics, GetWindowRect, GetWindowTextLengthW,
+                    GetWindowThreadProcessId, HICON, HTCLIENT, HTTRANSPARENT, HWND_TOP,
+                    HWND_TOPMOST, ICONINFO, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON, IsWindow,
+                    IsWindowVisible, LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY, LoadCursorW,
+                    LoadIconW, LoadImageW, MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED,
+                    PM_REMOVE, PeekMessageW, PostMessageW, RegisterClassW, SM_CXVIRTUALSCREEN,
+                    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETMOUSE,
+                    SPI_GETMOUSESPEED, SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_HIDEWINDOW,
+                    SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSENDCHANGING, SWP_NOSIZE,
+                    SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+                    SetCursorPos, SetForegroundWindow, SetLayeredWindowAttributes,
+                    SetWindowLongPtrW, SetWindowPos, ShowCursor, SystemParametersInfoW,
+                    TranslateMessage, WM_APP, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
+                    WM_ERASEBKGND, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
+                    WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
+                    WM_NCHITTEST, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
+                    WM_RBUTTONUP, WM_SETCURSOR, WM_USER, WNDCLASSW, WS_EX_LAYERED,
                     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+                    WindowFromPoint,
                 },
             },
         },
+        core::{BOOL, PCSTR, PCWSTR},
     };
 
     #[derive(Default)]
@@ -640,12 +768,72 @@ mod imp {
         match id {
             1 => "windowed-scale-toggle",
             2 => "fullscreen-scale-toggle",
+            3 => "pointer-magnifier-toggle",
+            4 => "window-screenshot",
+            5 => "pointer-magnifier-screenshot",
+            6 => "pointer-color-code-toggle",
+            7 => "pointer-color-code-copy",
+            8 => "pointer-cursor-toggle",
             _ => "unknown",
         }
     }
 
     fn wide_null(value: &str) -> Vec<u16> {
         value.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    fn colorref_to_web_color(color: COLORREF) -> String {
+        let value = color.0;
+        let red = value & 0xff;
+        let green = (value >> 8) & 0xff;
+        let blue = (value >> 16) & 0xff;
+        format!("#{red:02X}{green:02X}{blue:02X}")
+    }
+
+    pub fn current_pointer_web_color() -> Result<String, Win32Error> {
+        let mut cursor = POINT::default();
+        unsafe { GetCursorPos(&mut cursor) }
+            .map_err(|error| Win32Error::Api(format!("GetCursorPos failed: {error:?}")))?;
+        let hdc = unsafe { GetDC(None) };
+        if hdc.is_invalid() {
+            return Err(Win32Error::Api("GetDC screen failed".to_string()));
+        }
+        let color = unsafe { GetPixel(hdc, cursor.x, cursor.y) };
+        let _ = unsafe { ReleaseDC(None, hdc) };
+        if color.0 == u32::MAX {
+            return Err(Win32Error::Api("GetPixel failed".to_string()));
+        }
+        Ok(colorref_to_web_color(color))
+    }
+
+    pub fn copy_text_to_clipboard(text: &str) -> Result<(), Win32Error> {
+        let wide = wide_null(text);
+        let byte_len = wide.len() * std::mem::size_of::<u16>();
+        unsafe {
+            OpenClipboard(None)
+                .map_err(|error| Win32Error::Api(format!("OpenClipboard failed: {error:?}")))?;
+            let result = (|| {
+                EmptyClipboard().map_err(|error| {
+                    Win32Error::Api(format!("EmptyClipboard failed: {error:?}"))
+                })?;
+                let handle = GlobalAlloc(GMEM_MOVEABLE, byte_len).map_err(|error| {
+                    Win32Error::Api(format!("GlobalAlloc clipboard failed: {error:?}"))
+                })?;
+                let locked = GlobalLock(handle);
+                if locked.is_null() {
+                    let _ = GlobalUnlock(handle);
+                    return Err(Win32Error::Api("GlobalLock clipboard failed".to_string()));
+                }
+                std::ptr::copy_nonoverlapping(wide.as_ptr(), locked.cast::<u16>(), wide.len());
+                let _ = GlobalUnlock(handle);
+                SetClipboardData(13, Some(HANDLE(handle.0))).map_err(|error| {
+                    Win32Error::Api(format!("SetClipboardData failed: {error:?}"))
+                })?;
+                Ok(())
+            })();
+            let _ = CloseClipboard();
+            result
+        }
     }
 
     fn copy_wide<const N: usize>(target: &mut [u16; N], value: &str) {
@@ -664,8 +852,50 @@ mod imp {
         source_window_from_hwnd(hwnd)
     }
 
+    pub fn foreground_or_fallback_source_window() -> Result<SourceWindow, Win32Error> {
+        match foreground_source_window() {
+            Ok(source) => Ok(source),
+            Err(Win32Error::RejectedSelfWindow) => first_visible_external_source_window(),
+            Err(error) => Err(error),
+        }
+    }
+
     pub fn source_window_from_raw(hwnd: isize) -> Result<SourceWindow, Win32Error> {
         source_window_from_hwnd(hwnd_from_raw(hwnd))
+    }
+
+    fn first_visible_external_source_window() -> Result<SourceWindow, Win32Error> {
+        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let selected = &mut *(lparam.0 as *mut Option<SourceWindow>);
+            if selected.is_some() {
+                return BOOL(0);
+            }
+            if let Ok(source) = fallback_source_window_from_hwnd(hwnd) {
+                *selected = Some(source);
+                return BOOL(0);
+            }
+            TRUE
+        }
+
+        let mut selected = None;
+        let enum_result = unsafe {
+            EnumWindows(
+                Some(enum_proc),
+                LPARAM((&mut selected as *mut Option<SourceWindow>) as isize),
+            )
+        };
+        if let Some(source) = selected {
+            return Ok(source);
+        }
+        enum_result.map_err(|error| Win32Error::Api(format!("EnumWindows failed: {error:?}")))?;
+        Err(Win32Error::NoForegroundWindow)
+    }
+
+    fn fallback_source_window_from_hwnd(hwnd: HWND) -> Result<SourceWindow, Win32Error> {
+        if unsafe { GetWindowTextLengthW(hwnd) } <= 0 {
+            return Err(Win32Error::InvalidWindow);
+        }
+        source_window_from_hwnd(hwnd)
     }
 
     pub fn is_foreground_move_size_active() -> bool {
@@ -1145,6 +1375,878 @@ mod imp {
                 let _ = unsafe { DestroyWindow(self.hwnd) };
             }
         }
+    }
+
+    const POINTER_MAGNIFIER_BORDER: i32 = 2;
+    const POINTER_MAGNIFIER_CURSOR_OFFSET: i32 = 24;
+    const POINTER_COLOR_LABEL_W: i32 = 112;
+    const POINTER_COLOR_LABEL_H: i32 = 24;
+    const POINTER_COLOR_LABEL_GAP: i32 = 6;
+
+    pub struct PointerMagnifierWindow {
+        host_hwnd: HWND,
+        visible: bool,
+        last_config: PointerMagnifierConfig,
+    }
+
+    impl PointerMagnifierWindow {
+        pub fn create_hidden() -> Result<Self, Win32Error> {
+            if !magnification_cursor_ready() {
+                return Err(Win32Error::Api(
+                    "Magnification API initialization failed".to_string(),
+                ));
+            }
+
+            unsafe extern "system" fn wnd_proc(
+                hwnd: HWND,
+                msg: u32,
+                wparam: WPARAM,
+                lparam: LPARAM,
+            ) -> LRESULT {
+                match msg {
+                    WM_NCHITTEST => return LRESULT(HTTRANSPARENT as isize),
+                    WM_ERASEBKGND => return LRESULT(1),
+                    WM_PAINT => return unsafe { paint_pointer_magnifier_from_state(hwnd) },
+                    WM_DESTROY => return LRESULT(0),
+                    _ => {}
+                }
+                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            }
+
+            let instance = unsafe { GetModuleHandleW(None) }
+                .map_err(|error| Win32Error::Api(format!("GetModuleHandleW failed: {error:?}")))?;
+            let class_name = windows::core::w!("DodbogiPointerMagnifierHost");
+            let wc = WNDCLASSW {
+                style: CS_HREDRAW | CS_VREDRAW,
+                lpfnWndProc: Some(wnd_proc),
+                hInstance: HINSTANCE(instance.0),
+                lpszClassName: class_name,
+                ..Default::default()
+            };
+            let atom = unsafe { RegisterClassW(&wc) };
+            if atom == 0 {
+                let err = unsafe { GetLastError() };
+                if err.0 != 1410 {
+                    return Err(Win32Error::Api(format!(
+                        "RegisterClassW pointer magnifier host failed: {err:?}"
+                    )));
+                }
+            }
+
+            let host_hwnd = unsafe {
+                CreateWindowExW(
+                    WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT,
+                    class_name,
+                    windows::core::w!("Dodbogi Pointer Magnifier"),
+                    WS_POPUP,
+                    0,
+                    0,
+                    320,
+                    180,
+                    None,
+                    None,
+                    Some(HINSTANCE(instance.0)),
+                    None,
+                )
+            }
+            .map_err(|error| {
+                Win32Error::Api(format!(
+                    "CreateWindowExW pointer magnifier host failed: {error:?}"
+                ))
+            })?;
+
+            Ok(Self {
+                host_hwnd,
+                visible: false,
+                last_config: PointerMagnifierConfig {
+                    source_width: 320,
+                    source_height: 180,
+                    scale_percent: 200,
+                    show_color_code: false,
+                    show_cursor: true,
+                },
+            })
+        }
+
+        pub fn update(
+            &mut self,
+            config: PointerMagnifierConfig,
+        ) -> Result<PointerMagnifierUpdateReport, Win32Error> {
+            let config = config.sanitized();
+            let geometry = pointer_magnifier_geometry(config)?;
+            self.last_config = config;
+            store_pointer_magnifier_paint_state(geometry, config);
+
+            let layout = pointer_magnifier_host_layout(&geometry, config);
+            unsafe {
+                SetWindowPos(
+                    self.host_hwnd,
+                    Some(HWND_TOPMOST),
+                    layout.host_left,
+                    layout.host_top,
+                    layout.host_width,
+                    layout.host_height,
+                    SWP_NOACTIVATE | SWP_NOSENDCHANGING | SWP_SHOWWINDOW,
+                )
+            }
+            .map_err(|error| {
+                Win32Error::Api(format!(
+                    "SetWindowPos pointer magnifier host failed: {error:?}"
+                ))
+            })?;
+            apply_pointer_magnifier_window_region(self.host_hwnd, &layout);
+            paint_pointer_magnifier_frame(self.host_hwnd, &geometry, config)?;
+            self.visible = true;
+            Ok(PointerMagnifierUpdateReport {
+                source_rect: geometry.source_rect,
+                destination_rect: geometry.destination_rect,
+                scale_percent: config.scale_percent,
+            })
+        }
+
+        pub fn hide(&mut self) {
+            let _ = unsafe {
+                SetWindowPos(
+                    self.host_hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE
+                        | SWP_NOCOPYBITS
+                        | SWP_NOSENDCHANGING
+                        | SWP_NOMOVE
+                        | SWP_NOSIZE
+                        | SWP_HIDEWINDOW,
+                )
+            };
+            clear_pointer_magnifier_paint_state();
+            self.visible = false;
+        }
+
+        pub fn save_screenshot(
+            &mut self,
+            path: &Path,
+            config: PointerMagnifierConfig,
+        ) -> Result<PointerMagnifierScreenshotReport, Win32Error> {
+            let was_visible = self.visible;
+            if was_visible {
+                self.hide();
+                thread::sleep(Duration::from_millis(16));
+            }
+            let result = save_pointer_magnifier_screenshot(path, config);
+            if was_visible {
+                let _ = self.update(self.last_config);
+            }
+            result
+        }
+    }
+
+    impl Drop for PointerMagnifierWindow {
+        fn drop(&mut self) {
+            clear_pointer_magnifier_paint_state();
+            if !is_null_hwnd(self.host_hwnd) {
+                let _ = unsafe { DestroyWindow(self.host_hwnd) };
+            }
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct PointerMagnifierGeometry {
+        source_rect: PhysicalRect,
+        destination_rect: PhysicalRect,
+        output_width: u32,
+        output_height: u32,
+    }
+
+    #[derive(Clone, Copy)]
+    struct PointerMagnifierPaintState {
+        geometry: PointerMagnifierGeometry,
+        config: PointerMagnifierConfig,
+    }
+
+    #[derive(Clone, Copy)]
+    struct PointerMagnifierHostLayout {
+        host_left: i32,
+        host_top: i32,
+        host_width: i32,
+        host_height: i32,
+        content_origin_x: i32,
+        content_origin_y: i32,
+        content_border_rect: RECT,
+        color_label_rect: Option<RECT>,
+    }
+
+    fn pointer_magnifier_host_layout(
+        geometry: &PointerMagnifierGeometry,
+        config: PointerMagnifierConfig,
+    ) -> PointerMagnifierHostLayout {
+        let content_w = geometry.destination_rect.width().max(1);
+        let content_h = geometry.destination_rect.height().max(1);
+        let base_w = content_w + POINTER_MAGNIFIER_BORDER * 2;
+        let base_h = content_h + POINTER_MAGNIFIER_BORDER * 2;
+        let mut layout = PointerMagnifierHostLayout {
+            host_left: geometry.destination_rect.left - POINTER_MAGNIFIER_BORDER,
+            host_top: geometry.destination_rect.top - POINTER_MAGNIFIER_BORDER,
+            host_width: base_w,
+            host_height: base_h,
+            content_origin_x: POINTER_MAGNIFIER_BORDER,
+            content_origin_y: POINTER_MAGNIFIER_BORDER,
+            content_border_rect: RECT {
+                left: 0,
+                top: 0,
+                right: base_w,
+                bottom: base_h,
+            },
+            color_label_rect: None,
+        };
+
+        if !config.show_color_code {
+            return layout;
+        }
+
+        let inside_fits =
+            content_w >= POINTER_COLOR_LABEL_W + 16 && content_h >= POINTER_COLOR_LABEL_H + 14;
+        if inside_fits {
+            layout.color_label_rect = Some(RECT {
+                left: POINTER_MAGNIFIER_BORDER + 8,
+                top: POINTER_MAGNIFIER_BORDER + content_h - POINTER_COLOR_LABEL_H - 6,
+                right: POINTER_MAGNIFIER_BORDER + 8 + POINTER_COLOR_LABEL_W,
+                bottom: POINTER_MAGNIFIER_BORDER + content_h - 6,
+            });
+            return layout;
+        }
+
+        let bounds = virtual_screen_rect();
+        let label_extra = POINTER_COLOR_LABEL_GAP + POINTER_COLOR_LABEL_H;
+        if layout.host_top + base_h + label_extra <= bounds.bottom {
+            layout.host_width = base_w.max(POINTER_COLOR_LABEL_W + POINTER_MAGNIFIER_BORDER * 2);
+            layout.host_height = base_h + label_extra;
+            layout.color_label_rect = Some(RECT {
+                left: POINTER_MAGNIFIER_BORDER,
+                top: base_h + POINTER_COLOR_LABEL_GAP,
+                right: POINTER_MAGNIFIER_BORDER + POINTER_COLOR_LABEL_W,
+                bottom: base_h + POINTER_COLOR_LABEL_GAP + POINTER_COLOR_LABEL_H,
+            });
+            return layout;
+        }
+
+        if layout.host_top - label_extra >= bounds.top {
+            layout.host_top -= label_extra;
+            layout.host_width = base_w.max(POINTER_COLOR_LABEL_W + POINTER_MAGNIFIER_BORDER * 2);
+            layout.host_height = base_h + label_extra;
+            layout.content_origin_y += label_extra;
+            layout.content_border_rect.top += label_extra;
+            layout.content_border_rect.bottom += label_extra;
+            layout.color_label_rect = Some(RECT {
+                left: POINTER_MAGNIFIER_BORDER,
+                top: POINTER_MAGNIFIER_BORDER,
+                right: POINTER_MAGNIFIER_BORDER + POINTER_COLOR_LABEL_W,
+                bottom: POINTER_MAGNIFIER_BORDER + POINTER_COLOR_LABEL_H,
+            });
+            return layout;
+        }
+
+        let side_extra = POINTER_COLOR_LABEL_GAP + POINTER_COLOR_LABEL_W;
+        if layout.host_left + base_w + side_extra <= bounds.right {
+            layout.host_width = base_w + side_extra;
+            layout.host_height = base_h.max(POINTER_COLOR_LABEL_H + POINTER_MAGNIFIER_BORDER * 2);
+            layout.color_label_rect = Some(RECT {
+                left: base_w + POINTER_COLOR_LABEL_GAP,
+                top: POINTER_MAGNIFIER_BORDER,
+                right: base_w + POINTER_COLOR_LABEL_GAP + POINTER_COLOR_LABEL_W,
+                bottom: POINTER_MAGNIFIER_BORDER + POINTER_COLOR_LABEL_H,
+            });
+            return layout;
+        }
+
+        if layout.host_left - side_extra >= bounds.left {
+            layout.host_left -= side_extra;
+            layout.host_width = base_w + side_extra;
+            layout.host_height = base_h.max(POINTER_COLOR_LABEL_H + POINTER_MAGNIFIER_BORDER * 2);
+            layout.content_origin_x += side_extra;
+            layout.content_border_rect.left += side_extra;
+            layout.content_border_rect.right += side_extra;
+            layout.color_label_rect = Some(RECT {
+                left: POINTER_MAGNIFIER_BORDER,
+                top: POINTER_MAGNIFIER_BORDER,
+                right: POINTER_MAGNIFIER_BORDER + POINTER_COLOR_LABEL_W,
+                bottom: POINTER_MAGNIFIER_BORDER + POINTER_COLOR_LABEL_H,
+            });
+            return layout;
+        }
+
+        layout.color_label_rect = Some(RECT {
+            left: POINTER_MAGNIFIER_BORDER,
+            top: POINTER_MAGNIFIER_BORDER,
+            right: POINTER_MAGNIFIER_BORDER + content_w.min(POINTER_COLOR_LABEL_W),
+            bottom: POINTER_MAGNIFIER_BORDER + content_h.min(POINTER_COLOR_LABEL_H),
+        });
+        layout
+    }
+
+    fn apply_pointer_magnifier_window_region(hwnd: HWND, layout: &PointerMagnifierHostLayout) {
+        unsafe {
+            let region = CreateRectRgn(
+                layout.content_border_rect.left,
+                layout.content_border_rect.top,
+                layout.content_border_rect.right,
+                layout.content_border_rect.bottom,
+            );
+            if region.is_invalid() {
+                return;
+            }
+
+            if let Some(label) = layout.color_label_rect {
+                let label_region = CreateRectRgn(label.left, label.top, label.right, label.bottom);
+                if !label_region.is_invalid() {
+                    let _ = CombineRgn(Some(region), Some(region), Some(label_region), RGN_OR);
+                    let _ = DeleteObject(HGDIOBJ(label_region.0));
+                }
+            }
+
+            if SetWindowRgn(hwnd, Some(region), true) == 0 {
+                let _ = DeleteObject(HGDIOBJ(region.0));
+            }
+        }
+    }
+
+    static POINTER_MAGNIFIER_PAINT_STATE: OnceLock<Mutex<Option<PointerMagnifierPaintState>>> =
+        OnceLock::new();
+
+    fn pointer_magnifier_paint_state() -> &'static Mutex<Option<PointerMagnifierPaintState>> {
+        POINTER_MAGNIFIER_PAINT_STATE.get_or_init(|| Mutex::new(None))
+    }
+
+    fn store_pointer_magnifier_paint_state(
+        geometry: PointerMagnifierGeometry,
+        config: PointerMagnifierConfig,
+    ) {
+        if let Ok(mut slot) = pointer_magnifier_paint_state().lock() {
+            *slot = Some(PointerMagnifierPaintState { geometry, config });
+        }
+    }
+
+    fn clear_pointer_magnifier_paint_state() {
+        if let Ok(mut slot) = pointer_magnifier_paint_state().lock() {
+            *slot = None;
+        }
+    }
+
+    unsafe fn paint_pointer_magnifier_from_state(hwnd: HWND) -> LRESULT {
+        let mut ps = PAINTSTRUCT::default();
+        let hdc = BeginPaint(hwnd, &mut ps);
+        let state = pointer_magnifier_paint_state()
+            .lock()
+            .ok()
+            .and_then(|slot| *slot);
+        if let Some(state) = state {
+            let _ = paint_pointer_magnifier_frame_hdc(hwnd, hdc, &state.geometry, state.config);
+        } else {
+            let mut client = RECT::default();
+            let _ = GetClientRect(hwnd, &mut client);
+            fill_rect_color(hdc, &client, COLORREF(0x00fffef9));
+            draw_pointer_magnifier_border_hdc(hdc, &client);
+        }
+        let _ = EndPaint(hwnd, &ps);
+        LRESULT(0)
+    }
+
+    fn draw_pointer_magnifier_border_hdc(hdc: HDC, rect: &RECT) {
+        unsafe {
+            let pen = windows::Win32::Graphics::Gdi::CreatePen(
+                windows::Win32::Graphics::Gdi::PS_SOLID,
+                2,
+                COLORREF(0x00271f12),
+            );
+            let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
+            let old_brush = SelectObject(
+                hdc,
+                windows::Win32::Graphics::Gdi::GetStockObject(
+                    windows::Win32::Graphics::Gdi::HOLLOW_BRUSH,
+                ),
+            );
+            let _ = windows::Win32::Graphics::Gdi::Rectangle(
+                hdc,
+                rect.left,
+                rect.top,
+                rect.right,
+                rect.bottom,
+            );
+            let _ = SelectObject(hdc, old_brush);
+            let _ = SelectObject(hdc, old_pen);
+            let _ = DeleteObject(pen.into());
+        }
+    }
+
+    fn fill_rect_color(hdc: HDC, rect: &RECT, color: COLORREF) {
+        let brush = unsafe { CreateSolidBrush(color) };
+        if !brush.is_invalid() {
+            let _ = unsafe { FillRect(hdc, rect, brush) };
+            let _ = unsafe { DeleteObject(HGDIOBJ(brush.0)) };
+        }
+    }
+
+    fn paint_pointer_magnifier_frame(
+        host_hwnd: HWND,
+        geometry: &PointerMagnifierGeometry,
+        config: PointerMagnifierConfig,
+    ) -> Result<(), Win32Error> {
+        let hdc = unsafe { GetDC(Some(host_hwnd)) };
+        if hdc.is_invalid() {
+            return Err(Win32Error::Api(
+                "GetDC pointer magnifier host failed".to_string(),
+            ));
+        }
+
+        let result = paint_pointer_magnifier_frame_hdc(host_hwnd, hdc, geometry, config);
+        let _ = unsafe { ReleaseDC(Some(host_hwnd), hdc) };
+        result
+    }
+
+    fn paint_pointer_magnifier_frame_hdc(
+        host_hwnd: HWND,
+        hdc: HDC,
+        geometry: &PointerMagnifierGeometry,
+        config: PointerMagnifierConfig,
+    ) -> Result<(), Win32Error> {
+        let mut client = RECT::default();
+        let _ = unsafe { GetClientRect(host_hwnd, &mut client) };
+        let client_w = (client.right - client.left).max(1);
+        let client_h = (client.bottom - client.top).max(1);
+        let buffer_dc = unsafe { CreateCompatibleDC(Some(hdc)) };
+        if buffer_dc.is_invalid() {
+            return Err(Win32Error::Api(
+                "CreateCompatibleDC pointer magnifier buffer failed".to_string(),
+            ));
+        }
+        let buffer_bitmap = unsafe { CreateCompatibleBitmap(hdc, client_w, client_h) };
+        if buffer_bitmap.is_invalid() {
+            let _ = unsafe { DeleteDC(buffer_dc) };
+            return Err(Win32Error::Api(
+                "CreateCompatibleBitmap pointer magnifier buffer failed".to_string(),
+            ));
+        }
+        let old_buffer = unsafe { SelectObject(buffer_dc, HGDIOBJ(buffer_bitmap.0)) };
+        fill_rect_color(buffer_dc, &client, COLORREF(0x00fffef9));
+        let layout = pointer_magnifier_host_layout(geometry, config);
+
+        let screen_hdc = unsafe { GetDC(None) };
+        if screen_hdc.is_invalid() {
+            let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
+            let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
+            let _ = unsafe { DeleteDC(buffer_dc) };
+            return Err(Win32Error::Api(
+                "GetDC screen failed for pointer magnifier".to_string(),
+            ));
+        }
+
+        let content_w = geometry.destination_rect.width().max(1);
+        let content_h = geometry.destination_rect.height().max(1);
+        let rop = ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0);
+        let blt_ok = unsafe {
+            StretchBlt(
+                buffer_dc,
+                layout.content_origin_x,
+                layout.content_origin_y,
+                content_w,
+                content_h,
+                Some(screen_hdc),
+                geometry.source_rect.left,
+                geometry.source_rect.top,
+                geometry.source_rect.width().max(1),
+                geometry.source_rect.height().max(1),
+                rop,
+            )
+            .as_bool()
+        };
+        let _ = unsafe { ReleaseDC(None, screen_hdc) };
+        if !blt_ok {
+            let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
+            let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
+            let _ = unsafe { DeleteDC(buffer_dc) };
+            return Err(Win32Error::Api(
+                "StretchBlt pointer magnifier frame failed".to_string(),
+            ));
+        }
+
+        draw_pointer_magnifier_annotations(
+            buffer_dc,
+            geometry,
+            config,
+            layout.content_origin_x,
+            layout.content_origin_y,
+            layout.color_label_rect,
+        );
+        draw_pointer_magnifier_border_hdc(buffer_dc, &layout.content_border_rect);
+        let present_ok = unsafe {
+            BitBlt(
+                hdc,
+                0,
+                0,
+                client_w,
+                client_h,
+                Some(buffer_dc),
+                0,
+                0,
+                SRCCOPY,
+            )
+            .is_ok()
+        };
+        let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
+        let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
+        let _ = unsafe { DeleteDC(buffer_dc) };
+        if !present_ok {
+            return Err(Win32Error::Api(
+                "BitBlt pointer magnifier present failed".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn draw_pointer_magnifier_annotations(
+        hdc: HDC,
+        geometry: &PointerMagnifierGeometry,
+        config: PointerMagnifierConfig,
+        origin_x: i32,
+        origin_y: i32,
+        color_label_rect: Option<RECT>,
+    ) {
+        if !config.show_color_code && !config.show_cursor {
+            return;
+        }
+        let mut cursor = POINT::default();
+        if unsafe { GetCursorPos(&mut cursor) }.is_err() {
+            return;
+        }
+        let scale = config.scale_factor().max(0.1);
+        let pixel_rect =
+            magnified_source_pixel_rect(cursor, geometry.source_rect, scale, origin_x, origin_y);
+        let cursor_x =
+            origin_x + ((cursor.x - geometry.source_rect.left) as f32 * scale).round() as i32;
+        let cursor_y =
+            origin_y + ((cursor.y - geometry.source_rect.top) as f32 * scale).round() as i32;
+
+        if config.show_cursor {
+            if let Some(cursor_image) = current_cursor_image() {
+                let x = cursor_x - cursor_image.hotspot_x;
+                let y = cursor_y - cursor_image.hotspot_y;
+                let _ =
+                    unsafe { DrawIconEx(hdc, x, y, cursor_image.icon, 0, 0, 0, None, DI_NORMAL) };
+            }
+        }
+
+        if config.show_color_code {
+            let screen_hdc = unsafe { GetDC(None) };
+            if !screen_hdc.is_invalid() {
+                let color = unsafe { GetPixel(screen_hdc, cursor.x, cursor.y) };
+                let _ = unsafe { ReleaseDC(None, screen_hdc) };
+                if color.0 != u32::MAX {
+                    unsafe {
+                        let white_pen = CreatePen(PS_SOLID, 1, COLORREF(0x00ffffff));
+                        let old_pen = SelectObject(hdc, HGDIOBJ(white_pen.0));
+                        let old_brush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+                        let _ = Rectangle(
+                            hdc,
+                            pixel_rect.left - 1,
+                            pixel_rect.top - 1,
+                            pixel_rect.right + 1,
+                            pixel_rect.bottom + 1,
+                        );
+                        let _ = SelectObject(hdc, old_pen);
+                        let _ = DeleteObject(white_pen.into());
+
+                        let black_pen = CreatePen(PS_SOLID, 1, COLORREF(0x00000000));
+                        let old_pen = SelectObject(hdc, HGDIOBJ(black_pen.0));
+                        let _ = Rectangle(
+                            hdc,
+                            pixel_rect.left,
+                            pixel_rect.top,
+                            pixel_rect.right,
+                            pixel_rect.bottom,
+                        );
+                        let _ = SelectObject(hdc, old_brush);
+                        let _ = SelectObject(hdc, old_pen);
+                        let _ = DeleteObject(black_pen.into());
+                    }
+
+                    let color_text = colorref_to_web_color(color);
+                    let text_bg = color_label_rect.unwrap_or(RECT {
+                        left: origin_x + 8,
+                        top: origin_y + (geometry.destination_rect.height() - 30).max(8),
+                        right: origin_x + POINTER_COLOR_LABEL_W,
+                        bottom: origin_y + (geometry.destination_rect.height() - 6).max(32),
+                    });
+                    fill_rect_color(hdc, &text_bg, COLORREF(0x00ffffff));
+                    unsafe {
+                        let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00000000));
+                        let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
+                        let old_brush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+                        let _ = Rectangle(
+                            hdc,
+                            text_bg.left,
+                            text_bg.top,
+                            text_bg.right,
+                            text_bg.bottom,
+                        );
+                        let _ = SelectObject(hdc, old_brush);
+                        let _ = SelectObject(hdc, old_pen);
+                        let _ = DeleteObject(pen.into());
+                        let text = wide_null(&color_text);
+                        let _ = SetBkMode(hdc, TRANSPARENT);
+                        let _ = SetTextColor(hdc, COLORREF(0x00000000));
+                        let _ = TextOutW(
+                            hdc,
+                            text_bg.left + 9,
+                            text_bg.top + 5,
+                            &text[..text.len() - 1],
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn magnified_source_pixel_rect(
+        cursor: POINT,
+        source_rect: PhysicalRect,
+        scale: f32,
+        origin_x: i32,
+        origin_y: i32,
+    ) -> RECT {
+        let source_w = source_rect.width().max(1);
+        let source_h = source_rect.height().max(1);
+        let source_x = (cursor.x - source_rect.left).clamp(0, source_w - 1);
+        let source_y = (cursor.y - source_rect.top).clamp(0, source_h - 1);
+        let scale = scale.max(0.1);
+        let left = origin_x + ((source_x as f32) * scale).floor() as i32;
+        let top = origin_y + ((source_y as f32) * scale).floor() as i32;
+        let right = origin_x + (((source_x + 1) as f32) * scale).ceil() as i32;
+        let bottom = origin_y + (((source_y + 1) as f32) * scale).ceil() as i32;
+        RECT {
+            left,
+            top,
+            right: right.max(left + 1),
+            bottom: bottom.max(top + 1),
+        }
+    }
+
+    pub fn save_pointer_magnifier_screenshot(
+        path: &Path,
+        config: PointerMagnifierConfig,
+    ) -> Result<PointerMagnifierScreenshotReport, Win32Error> {
+        let geometry = pointer_magnifier_geometry(config.sanitized())?;
+        capture_screen_rect_to_ppm(
+            path,
+            geometry.source_rect,
+            geometry.output_width,
+            geometry.output_height,
+        )?;
+        Ok(PointerMagnifierScreenshotReport {
+            path: path.to_path_buf(),
+            source_rect: geometry.source_rect,
+            output_width: geometry.output_width,
+            output_height: geometry.output_height,
+        })
+    }
+
+    fn pointer_magnifier_geometry(
+        config: PointerMagnifierConfig,
+    ) -> Result<PointerMagnifierGeometry, Win32Error> {
+        let mut cursor = POINT::default();
+        unsafe { GetCursorPos(&mut cursor) }
+            .map_err(|error| Win32Error::Api(format!("GetCursorPos failed: {error:?}")))?;
+        let bounds = virtual_screen_rect();
+        let source_w = config.source_width.max(1) as i32;
+        let source_h = config.source_height.max(1) as i32;
+        let source_rect = fit_rect_to_bounds(
+            cursor.x - source_w / 2,
+            cursor.y - source_h / 2,
+            source_w,
+            source_h,
+            bounds,
+        );
+        let scale = config.scale_factor();
+        let output_w = ((source_rect.width().max(1) as f32) * scale)
+            .round()
+            .max(1.0) as i32;
+        let output_h = ((source_rect.height().max(1) as f32) * scale)
+            .round()
+            .max(1.0) as i32;
+        let gap = POINTER_MAGNIFIER_CURSOR_OFFSET;
+        let right_left = source_rect.right + gap;
+        let left_left = source_rect.left - gap - output_w;
+        let bottom_top = source_rect.bottom + gap;
+        let top_top = source_rect.top - gap - output_h;
+        let max_left = (bounds.right - output_w).max(bounds.left);
+        let max_top = (bounds.bottom - output_h).max(bounds.top);
+        let (left, top) = if right_left + output_w <= bounds.right {
+            (
+                right_left,
+                (cursor.y - output_h / 2).clamp(bounds.top, max_top),
+            )
+        } else if left_left >= bounds.left {
+            (
+                left_left,
+                (cursor.y - output_h / 2).clamp(bounds.top, max_top),
+            )
+        } else if bottom_top + output_h <= bounds.bottom {
+            (
+                (cursor.x - output_w / 2).clamp(bounds.left, max_left),
+                bottom_top,
+            )
+        } else {
+            (
+                (cursor.x - output_w / 2).clamp(bounds.left, max_left),
+                top_top.max(bounds.top),
+            )
+        };
+        let destination_rect = fit_rect_to_bounds(left, top, output_w, output_h, bounds);
+        Ok(PointerMagnifierGeometry {
+            source_rect,
+            destination_rect,
+            output_width: output_w.max(1) as u32,
+            output_height: output_h.max(1) as u32,
+        })
+    }
+
+    fn virtual_screen_rect() -> PhysicalRect {
+        let left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+        let top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+        let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) }.max(1);
+        let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) }.max(1);
+        PhysicalRect {
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+        }
+    }
+
+    fn fit_rect_to_bounds(
+        mut left: i32,
+        mut top: i32,
+        width: i32,
+        height: i32,
+        bounds: PhysicalRect,
+    ) -> PhysicalRect {
+        let width = width.max(1).min(bounds.width().max(1));
+        let height = height.max(1).min(bounds.height().max(1));
+        if left + width > bounds.right {
+            left = bounds.right - width;
+        }
+        if top + height > bounds.bottom {
+            top = bounds.bottom - height;
+        }
+        left = left.max(bounds.left);
+        top = top.max(bounds.top);
+        PhysicalRect {
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+        }
+    }
+
+    fn capture_screen_rect_to_ppm(
+        path: &Path,
+        source: PhysicalRect,
+        output_width: u32,
+        output_height: u32,
+    ) -> Result<(), Win32Error> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                Win32Error::Api(format!("screenshot directory create failed: {error:?}"))
+            })?;
+        }
+        let out_w = output_width.max(1) as i32;
+        let out_h = output_height.max(1) as i32;
+        let screen_dc = unsafe { GetDC(None) };
+        if screen_dc.is_invalid() {
+            return Err(Win32Error::Api("GetDC screen failed".to_string()));
+        }
+        let mem_dc = unsafe { CreateCompatibleDC(Some(screen_dc)) };
+        if mem_dc.is_invalid() {
+            let _ = unsafe { ReleaseDC(None, screen_dc) };
+            return Err(Win32Error::Api("CreateCompatibleDC failed".to_string()));
+        }
+        let bitmap = unsafe { CreateCompatibleBitmap(screen_dc, out_w, out_h) };
+        if bitmap.is_invalid() {
+            let _ = unsafe { DeleteDC(mem_dc) };
+            let _ = unsafe { ReleaseDC(None, screen_dc) };
+            return Err(Win32Error::Api("CreateCompatibleBitmap failed".to_string()));
+        }
+        let old = unsafe { SelectObject(mem_dc, HGDIOBJ(bitmap.0)) };
+        let rop = ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0);
+        if !unsafe {
+            StretchBlt(
+                mem_dc,
+                0,
+                0,
+                out_w,
+                out_h,
+                Some(screen_dc),
+                source.left,
+                source.top,
+                source.width().max(1),
+                source.height().max(1),
+                rop,
+            )
+            .as_bool()
+        } {
+            let _ = unsafe { SelectObject(mem_dc, old) };
+            cleanup_capture_gdi(mem_dc, bitmap, screen_dc);
+            return Err(Win32Error::Api("StretchBlt screenshot failed".to_string()));
+        }
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: out_w,
+                biHeight: -out_h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut pixels = vec![0u8; (out_w as usize) * (out_h as usize) * 4];
+        let lines = unsafe {
+            GetDIBits(
+                mem_dc,
+                bitmap,
+                0,
+                out_h as u32,
+                Some(pixels.as_mut_ptr().cast()),
+                &mut info,
+                DIB_RGB_COLORS,
+            )
+        };
+        let _ = unsafe { SelectObject(mem_dc, old) };
+        cleanup_capture_gdi(mem_dc, bitmap, screen_dc);
+        if lines == 0 {
+            return Err(Win32Error::Api("GetDIBits screenshot failed".to_string()));
+        }
+        let mut ppm = Vec::with_capacity(32 + (out_w as usize) * (out_h as usize) * 3);
+        ppm.extend_from_slice(format!("P6\n{} {}\n255\n", out_w, out_h).as_bytes());
+        for chunk in pixels.chunks_exact(4) {
+            ppm.push(chunk[2]);
+            ppm.push(chunk[1]);
+            ppm.push(chunk[0]);
+        }
+        fs::write(path, ppm).map_err(|error| {
+            Win32Error::Api(format!(
+                "pointer magnifier screenshot write failed for {}: {error:?}",
+                path.display()
+            ))
+        })
+    }
+
+    fn cleanup_capture_gdi(mem_dc: HDC, bitmap: HBITMAP, screen_dc: HDC) {
+        let _ = unsafe { DeleteObject(HGDIOBJ(bitmap.0)) };
+        let _ = unsafe { DeleteDC(mem_dc) };
+        let _ = unsafe { ReleaseDC(None, screen_dc) };
     }
 
     const CURSOR_OVERLAY_SIZE: i32 = 128;
@@ -2701,14 +3803,21 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     use super::{
-        input_event_kind_name, ControlledInputProbeReport, CursorCaptureReport, InputDeliveryMode,
-        InputDeliveryReport, MonitorGeometry, OverlayStyleContract, PhysicalRect, ShellMessage,
+        ControlledInputProbeReport, CursorCaptureReport, InputDeliveryMode, InputDeliveryReport,
+        MonitorGeometry, OverlayStyleContract, PhysicalRect, PointerMagnifierConfig,
+        PointerMagnifierScreenshotReport, PointerMagnifierUpdateReport, ShellMessage,
         SourceInputEvent, SourceWindow, SystemHotkeyReport, TrayMenuItem, Win32Error,
+        input_event_kind_name,
     };
+    use dodbogi_core::DodbogiSettings;
     use dodbogi_input::InputTransform;
     use std::path::{Path, PathBuf};
 
     pub fn foreground_source_window() -> Result<SourceWindow, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn foreground_or_fallback_source_window() -> Result<SourceWindow, Win32Error> {
         Err(Win32Error::NotImplemented("Windows-only"))
     }
 
@@ -2766,6 +3875,12 @@ mod imp {
             }
         }
 
+        pub fn register_from_settings(_settings: &DodbogiSettings) -> Self {
+            Self::register_defaults()
+        }
+
+        pub fn replace_from_settings(&mut self, _settings: &DodbogiSettings) {}
+
         pub fn report(&self) -> &SystemHotkeyReport {
             &self.report
         }
@@ -2805,6 +3920,46 @@ mod imp {
                 alt_tab_entry: false,
             }
         }
+    }
+
+    pub struct PointerMagnifierWindow;
+
+    impl PointerMagnifierWindow {
+        pub fn create_hidden() -> Result<Self, Win32Error> {
+            Err(Win32Error::NotImplemented("Windows-only"))
+        }
+
+        pub fn update(
+            &mut self,
+            _config: PointerMagnifierConfig,
+        ) -> Result<PointerMagnifierUpdateReport, Win32Error> {
+            Err(Win32Error::NotImplemented("Windows-only"))
+        }
+
+        pub fn hide(&mut self) {}
+
+        pub fn save_screenshot(
+            &mut self,
+            _path: &Path,
+            _config: PointerMagnifierConfig,
+        ) -> Result<PointerMagnifierScreenshotReport, Win32Error> {
+            Err(Win32Error::NotImplemented("Windows-only"))
+        }
+    }
+
+    pub fn save_pointer_magnifier_screenshot(
+        _path: &Path,
+        _config: PointerMagnifierConfig,
+    ) -> Result<PointerMagnifierScreenshotReport, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn current_pointer_web_color() -> Result<String, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn copy_text_to_clipboard(_text: &str) -> Result<(), Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
     }
 
     pub struct CursorCaptureController;
@@ -2947,9 +4102,15 @@ mod tests {
     fn hotkey_registry_registers_and_unregisters_defaults() {
         let mut registry = HotkeyRegistry::default();
         registry.register_defaults();
-        assert_eq!(registry.registered().len(), 2);
+        assert_eq!(registry.registered().len(), 8);
         assert_eq!(registry.registered()[0].accelerator, "Ctrl+Alt+Q");
         assert_eq!(registry.registered()[1].accelerator, "Ctrl+Alt+A");
+        assert_eq!(registry.registered()[2].accelerator, "Ctrl+Alt+E");
+        assert_eq!(registry.registered()[3].accelerator, "Shift+Alt+Q");
+        assert_eq!(registry.registered()[4].accelerator, "Shift+Alt+E");
+        assert_eq!(registry.registered()[5].accelerator, "Ctrl+Alt+C");
+        assert_eq!(registry.registered()[6].accelerator, "Shift+Alt+C");
+        assert_eq!(registry.registered()[7].accelerator, "Ctrl+Alt+R");
         registry.unregister_all();
         assert!(registry.registered().is_empty());
     }
@@ -2993,15 +4154,57 @@ mod tests {
     }
 
     #[test]
+    fn pointer_magnifier_accepts_1000_percent_scale() {
+        let config = PointerMagnifierConfig {
+            source_width: 1,
+            source_height: 1,
+            scale_percent: 1000,
+            show_color_code: true,
+            show_cursor: true,
+        }
+        .sanitized();
+
+        assert_eq!(config.source_width, 1);
+        assert_eq!(config.source_height, 1);
+        assert_eq!(config.scale_percent, 1000);
+        assert_eq!(config.scale_factor(), 10.0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn color_code_marker_tracks_one_source_pixel_at_current_scale() {
+        let source = PhysicalRect {
+            left: 100,
+            top: 200,
+            right: 200,
+            bottom: 300,
+        };
+        let cursor = windows::Win32::Foundation::POINT { x: 150, y: 250 };
+
+        let two_x = imp::magnified_source_pixel_rect(cursor, source, 2.0, 4, 6);
+        assert_eq!(two_x.left, 104);
+        assert_eq!(two_x.top, 106);
+        assert_eq!(two_x.right - two_x.left, 2);
+        assert_eq!(two_x.bottom - two_x.top, 2);
+
+        let ten_x = imp::magnified_source_pixel_rect(cursor, source, 10.0, 4, 6);
+        assert_eq!(ten_x.left, 504);
+        assert_eq!(ten_x.top, 506);
+        assert_eq!(ten_x.right - ten_x.left, 10);
+        assert_eq!(ten_x.bottom - ten_x.top, 10);
+    }
+
+    #[test]
     fn tray_placeholder_exposes_expected_menu_contract() {
         let mut tray = TrayController::default();
         tray.install_placeholder();
         assert!(tray.is_installed());
         assert!(tray.menu_items().iter().any(|item| item.id == "settings"));
-        assert!(tray
-            .menu_items()
-            .iter()
-            .any(|item| item.id == "diagnostics"));
+        assert!(
+            tray.menu_items()
+                .iter()
+                .any(|item| item.id == "diagnostics")
+        );
         assert!(tray.menu_items().iter().any(|item| item.id == "exit"));
         tray.remove();
         assert!(!tray.is_installed());

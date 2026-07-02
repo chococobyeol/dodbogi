@@ -398,6 +398,10 @@ pub struct AppProfile {
     pub scaling_mode: ScalingMode,
     pub capture_method: CaptureMethod,
     pub windowed_scale_percent: u32,
+    pub pointer_magnifier_width: u32,
+    pub pointer_magnifier_height: u32,
+    pub pointer_magnifier_scale_percent: u32,
+    pub pointer_color_code_enabled: bool,
     pub monitor_selection: MonitorSelectionMode,
     pub effect_chain: Vec<String>,
     pub capture_title_bar: bool,
@@ -415,6 +419,10 @@ impl AppProfile {
             scaling_mode: ScalingMode::Windowed,
             capture_method: CaptureMethod::WindowsGraphicsCapture,
             windowed_scale_percent: 200,
+            pointer_magnifier_width: 100,
+            pointer_magnifier_height: 100,
+            pointer_magnifier_scale_percent: 200,
+            pointer_color_code_enabled: false,
             monitor_selection: MonitorSelectionMode::Closest,
             effect_chain: vec!["bilinear".to_string()],
             capture_title_bar: true,
@@ -533,6 +541,11 @@ pub struct HotkeySettings {
     pub fullscreen_toggle: String,
     pub open_settings: String,
     pub screenshot: String,
+    pub pointer_magnifier_toggle: String,
+    pub pointer_screenshot: String,
+    pub pointer_color_code_toggle: String,
+    pub pointer_color_code_copy: String,
+    pub pointer_cursor_toggle: String,
 }
 
 impl Default for HotkeySettings {
@@ -541,7 +554,29 @@ impl Default for HotkeySettings {
             windowed_toggle: "Ctrl+Alt+Q".to_string(),
             fullscreen_toggle: "Ctrl+Alt+A".to_string(),
             open_settings: "Ctrl+Alt+S".to_string(),
-            screenshot: "Ctrl+Alt+P".to_string(),
+            screenshot: "Shift+Alt+Q".to_string(),
+            pointer_magnifier_toggle: "Ctrl+Alt+E".to_string(),
+            pointer_screenshot: "Shift+Alt+E".to_string(),
+            pointer_color_code_toggle: "Ctrl+Alt+C".to_string(),
+            pointer_color_code_copy: "Shift+Alt+C".to_string(),
+            pointer_cursor_toggle: "Ctrl+Alt+R".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreenshotConfig {
+    /// Empty means "the directory that contains the running dodbogi executable".
+    pub window_dir: String,
+    /// Empty means "the directory that contains the running dodbogi executable".
+    pub pointer_dir: String,
+}
+
+impl Default for ScreenshotConfig {
+    fn default() -> Self {
+        Self {
+            window_dir: String::new(),
+            pointer_dir: String::new(),
         }
     }
 }
@@ -629,6 +664,7 @@ pub struct DodbogiSettings {
     pub version: u32,
     pub profiles: ProfileSet,
     pub hotkeys: HotkeySettings,
+    pub screenshots: ScreenshotConfig,
     pub diagnostics: DiagnosticsConfig,
     pub ui: UiConfig,
     pub packaging: PackagingPlan,
@@ -640,6 +676,7 @@ impl Default for DodbogiSettings {
             version: 1,
             profiles: ProfileSet::default(),
             hotkeys: HotkeySettings::default(),
+            screenshots: ScreenshotConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
             ui: UiConfig::default(),
             packaging: PackagingPlan::default(),
@@ -677,6 +714,41 @@ impl DodbogiSettings {
             &self.hotkeys.open_settings,
         );
         push_kv_quoted(&mut output, "hotkey_screenshot", &self.hotkeys.screenshot);
+        push_kv_quoted(
+            &mut output,
+            "hotkey_pointer_magnifier",
+            &self.hotkeys.pointer_magnifier_toggle,
+        );
+        push_kv_quoted(
+            &mut output,
+            "hotkey_pointer_screenshot",
+            &self.hotkeys.pointer_screenshot,
+        );
+        push_kv_quoted(
+            &mut output,
+            "hotkey_pointer_color_code_toggle",
+            &self.hotkeys.pointer_color_code_toggle,
+        );
+        push_kv_quoted(
+            &mut output,
+            "hotkey_pointer_color_code_copy",
+            &self.hotkeys.pointer_color_code_copy,
+        );
+        push_kv_quoted(
+            &mut output,
+            "hotkey_pointer_cursor_toggle",
+            &self.hotkeys.pointer_cursor_toggle,
+        );
+        push_kv_quoted(
+            &mut output,
+            "window_screenshot_dir",
+            &self.screenshots.window_dir,
+        );
+        push_kv_quoted(
+            &mut output,
+            "pointer_screenshot_dir",
+            &self.screenshots.pointer_dir,
+        );
         push_kv_quoted(&mut output, "log_level", &self.diagnostics.log_level);
         push_kv_quoted(&mut output, "language", &self.ui.language);
         push_kv(
@@ -752,6 +824,26 @@ impl DodbogiSettings {
                 &mut output,
                 "windowed_scale_percent",
                 &profile.windowed_scale_percent.to_string(),
+            );
+            push_kv(
+                &mut output,
+                "pointer_magnifier_width",
+                &profile.pointer_magnifier_width.to_string(),
+            );
+            push_kv(
+                &mut output,
+                "pointer_magnifier_height",
+                &profile.pointer_magnifier_height.to_string(),
+            );
+            push_kv(
+                &mut output,
+                "pointer_magnifier_scale_percent",
+                &profile.pointer_magnifier_scale_percent.to_string(),
+            );
+            push_kv(
+                &mut output,
+                "pointer_color_code_enabled",
+                bool_setting(profile.pointer_color_code_enabled),
             );
             push_kv_quoted(
                 &mut output,
@@ -868,10 +960,52 @@ pub fn settings_ui_coverage(settings: &DodbogiSettings) -> SettingsUiCoverageRep
             SettingsUiSection {
                 id: "hotkeys",
                 covered: !settings.hotkeys.windowed_toggle.is_empty()
-                    && !settings.hotkeys.fullscreen_toggle.is_empty(),
+                    && !settings.hotkeys.fullscreen_toggle.is_empty()
+                    && !settings.hotkeys.pointer_magnifier_toggle.is_empty()
+                    && !settings.hotkeys.screenshot.is_empty()
+                    && !settings.hotkeys.pointer_screenshot.is_empty()
+                    && !settings.hotkeys.pointer_color_code_toggle.is_empty()
+                    && !settings.hotkeys.pointer_color_code_copy.is_empty()
+                    && !settings.hotkeys.pointer_cursor_toggle.is_empty(),
                 detail: format!(
-                    "{}/{}",
-                    settings.hotkeys.windowed_toggle, settings.hotkeys.fullscreen_toggle
+                    "{}/{}/{}/{}/{}/{}/{}/{}",
+                    settings.hotkeys.windowed_toggle,
+                    settings.hotkeys.fullscreen_toggle,
+                    settings.hotkeys.pointer_magnifier_toggle,
+                    settings.hotkeys.screenshot,
+                    settings.hotkeys.pointer_screenshot,
+                    settings.hotkeys.pointer_color_code_toggle,
+                    settings.hotkeys.pointer_color_code_copy,
+                    settings.hotkeys.pointer_cursor_toggle
+                ),
+            },
+            SettingsUiSection {
+                id: "pointer_magnifier",
+                covered: default.pointer_magnifier_width > 0
+                    && default.pointer_magnifier_height > 0
+                    && default.pointer_magnifier_scale_percent > 0,
+                detail: format!(
+                    "{}x{}@{}%",
+                    default.pointer_magnifier_width,
+                    default.pointer_magnifier_height,
+                    default.pointer_magnifier_scale_percent
+                ),
+            },
+            SettingsUiSection {
+                id: "screenshots",
+                covered: true,
+                detail: format!(
+                    "window={}, pointer={}",
+                    if settings.screenshots.window_dir.is_empty() {
+                        "<program-dir>"
+                    } else {
+                        &settings.screenshots.window_dir
+                    },
+                    if settings.screenshots.pointer_dir.is_empty() {
+                        "<program-dir>"
+                    } else {
+                        &settings.screenshots.pointer_dir
+                    }
                 ),
             },
             SettingsUiSection {
@@ -1048,6 +1182,21 @@ fn parse_global_key(
         "hotkey_fullscreen" => settings.hotkeys.fullscreen_toggle = unquote_setting(value),
         "hotkey_open_settings" => settings.hotkeys.open_settings = unquote_setting(value),
         "hotkey_screenshot" => settings.hotkeys.screenshot = unquote_setting(value),
+        "hotkey_pointer_magnifier" => {
+            settings.hotkeys.pointer_magnifier_toggle = unquote_setting(value)
+        }
+        "hotkey_pointer_screenshot" => settings.hotkeys.pointer_screenshot = unquote_setting(value),
+        "hotkey_pointer_color_code_toggle" => {
+            settings.hotkeys.pointer_color_code_toggle = unquote_setting(value)
+        }
+        "hotkey_pointer_color_code_copy" => {
+            settings.hotkeys.pointer_color_code_copy = unquote_setting(value)
+        }
+        "hotkey_pointer_cursor_toggle" => {
+            settings.hotkeys.pointer_cursor_toggle = unquote_setting(value)
+        }
+        "window_screenshot_dir" => settings.screenshots.window_dir = unquote_setting(value),
+        "pointer_screenshot_dir" => settings.screenshots.pointer_dir = unquote_setting(value),
         "log_level" => settings.diagnostics.log_level = unquote_setting(value),
         "language" => settings.ui.language = unquote_setting(value),
         "log_output_enabled" => settings.ui.log_output_enabled = parse_bool(value, line)?,
@@ -1119,6 +1268,18 @@ fn parse_profile_key(
         }
         "windowed_scale_percent" => {
             profile.windowed_scale_percent = parse_u32(value, line, key)?;
+        }
+        "pointer_magnifier_width" => {
+            profile.pointer_magnifier_width = parse_u32(value, line, key)?;
+        }
+        "pointer_magnifier_height" => {
+            profile.pointer_magnifier_height = parse_u32(value, line, key)?;
+        }
+        "pointer_magnifier_scale_percent" => {
+            profile.pointer_magnifier_scale_percent = parse_u32(value, line, key)?;
+        }
+        "pointer_color_code_enabled" => {
+            profile.pointer_color_code_enabled = parse_bool(value, line)?;
         }
         "monitor_selection" => {
             profile.monitor_selection = MonitorSelectionMode::from_setting(&unquote_setting(value))

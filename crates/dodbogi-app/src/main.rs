@@ -34,12 +34,13 @@ use dodbogi_render_d3d11::{
 use dodbogi_win32::{
     client_rect_from_raw, collect_startup_report, create_wgc_item_for_hwnd,
     cursor_position_for_probe, cursor_speed_for_probe, deliver_input_to_source, enumerate_monitors,
-    foreground_source_window, is_foreground_move_size_active, move_cursor_for_probe,
-    move_window_for_probe, recover_cursor_speed_guard, resize_window_for_probe,
-    run_controlled_input_probe, set_cursor_speed_for_probe, source_window_from_raw,
-    ControlledInputProbeReport, CursorCaptureController, CursorCaptureReport, HotkeyRegistry,
-    InputDeliveryMode, InputDeliveryReport, OverlayWindow, ShellMessage, ShellTrayIcon,
-    SystemHotkeyGuard, TrayController,
+    foreground_or_fallback_source_window, foreground_source_window, is_foreground_move_size_active,
+    move_cursor_for_probe, move_window_for_probe, recover_cursor_speed_guard,
+    resize_window_for_probe, run_controlled_input_probe, set_cursor_speed_for_probe,
+    source_window_from_raw, ControlledInputProbeReport, CursorCaptureController,
+    CursorCaptureReport, HotkeyRegistry, InputDeliveryMode, InputDeliveryReport, OverlayWindow,
+    PointerMagnifierConfig, PointerMagnifierScreenshotReport, PointerMagnifierWindow, ShellMessage,
+    ShellTrayIcon, SystemHotkeyGuard, TrayController,
 };
 
 mod settings_ui;
@@ -204,6 +205,12 @@ struct RuntimeScreenshotReport {
     presented_frames: u32,
 }
 
+struct RuntimePointerScreenshotReport {
+    path: PathBuf,
+    output_width: u32,
+    output_height: u32,
+}
+
 struct RuntimeInputForwardReport {
     source_hwnd: isize,
     kind: InputEventKind,
@@ -243,6 +250,32 @@ fn cursor_capture_input_delivery_report(
 
 fn active_runtime_profile(settings: &DodbogiSettings) -> &AppProfile {
     settings.profiles.active_profile()
+}
+
+fn active_runtime_profile_mut(settings: &mut DodbogiSettings) -> &mut AppProfile {
+    settings.profiles.active_profile_mut()
+}
+
+fn program_root_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn resolve_user_screenshot_dir(raw: &str) -> PathBuf {
+    let trimmed = raw.trim();
+    let program_root = program_root_dir();
+    if trimmed.is_empty() {
+        return program_root;
+    }
+    let path = PathBuf::from(trimmed);
+    if path.is_absolute() {
+        path
+    } else {
+        program_root.join(path)
+    }
 }
 
 const SCALER_RESIZE_SETTLE: Duration = Duration::from_millis(180);
@@ -326,6 +359,8 @@ fn scaler_resize_ready(active: &ActiveScalingSession, move_size_active: bool) ->
 
 struct ProductRuntimeController {
     active: Option<ActiveScalingSession>,
+    pointer_magnifier: Option<PointerMagnifierWindow>,
+    pointer_magnifier_config: PointerMagnifierConfig,
     shader_cache_root: PathBuf,
     cursor_speed_guard_path: PathBuf,
 }
@@ -334,6 +369,14 @@ impl ProductRuntimeController {
     fn new(shader_cache_root: PathBuf, cursor_speed_guard_path: PathBuf) -> Self {
         Self {
             active: None,
+            pointer_magnifier: None,
+            pointer_magnifier_config: PointerMagnifierConfig {
+                source_width: 320,
+                source_height: 180,
+                scale_percent: 200,
+                show_color_code: false,
+                show_cursor: true,
+            },
             shader_cache_root,
             cursor_speed_guard_path,
         }
@@ -341,6 +384,66 @@ impl ProductRuntimeController {
 
     fn is_active(&self) -> bool {
         self.active.is_some()
+    }
+
+    fn is_pointer_magnifier_active(&self) -> bool {
+        self.pointer_magnifier.is_some()
+    }
+
+    fn apply_pointer_magnifier_profile(&mut self, profile: &AppProfile) {
+        self.pointer_magnifier_config = PointerMagnifierConfig::from_profile(profile).sanitized();
+    }
+
+    fn toggle_pointer_magnifier(
+        &mut self,
+        profile: &AppProfile,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        self.apply_pointer_magnifier_profile(profile);
+        if let Some(mut magnifier) = self.pointer_magnifier.take() {
+            magnifier.hide();
+            return Ok(Some("pointer_magnifier_stopped".to_string()));
+        }
+        let mut magnifier =
+            PointerMagnifierWindow::create_hidden().map_err(|error| format!("{error:?}"))?;
+        let report = magnifier
+            .update(self.pointer_magnifier_config)
+            .map_err(|error| format!("{error:?}"))?;
+        self.pointer_magnifier = Some(magnifier);
+        Ok(Some(format!(
+            "pointer_magnifier_started source_rect={},{},{},{} destination={},{},{},{} scale_percent={} color_code={} cursor={}",
+            report.source_rect.left,
+            report.source_rect.top,
+            report.source_rect.right,
+            report.source_rect.bottom,
+            report.destination_rect.left,
+            report.destination_rect.top,
+            report.destination_rect.right,
+            report.destination_rect.bottom,
+            report.scale_percent,
+            self.pointer_magnifier_config.show_color_code,
+            self.pointer_magnifier_config.show_cursor
+        )))
+    }
+
+    fn update_pointer_magnifier(&mut self) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        let Some(magnifier) = self.pointer_magnifier.as_mut() else {
+            return Ok(None);
+        };
+        let report = magnifier
+            .update(self.pointer_magnifier_config)
+            .map_err(|error| format!("{error:?}"))?;
+        Ok(Some(format!(
+            "pointer_magnifier_update source_rect={},{},{},{} destination={},{},{},{} scale_percent={}",
+            report.source_rect.left,
+            report.source_rect.top,
+            report.source_rect.right,
+            report.source_rect.bottom,
+            report.destination_rect.left,
+            report.destination_rect.top,
+            report.destination_rect.right,
+            report.destination_rect.bottom,
+            report.scale_percent
+        )))
     }
 
     fn apply_runtime_profile(
@@ -426,7 +529,8 @@ impl ProductRuntimeController {
             .unwrap_or("bilinear");
         let mut session = ScalingSession::default();
         session.begin_waiting(mode)?;
-        let source = foreground_source_window().map_err(|error| format!("{error:?}"))?;
+        let source =
+            foreground_or_fallback_source_window().map_err(|error| format!("{error:?}"))?;
         session.start_scaling(source)?;
 
         let monitors = enumerate_monitors().map_err(|error| format!("{error:?}"))?;
@@ -819,6 +923,33 @@ impl ProductRuntimeController {
         }))
     }
 
+    fn save_pointer_magnifier_screenshot(
+        &mut self,
+        screenshot_dir: &Path,
+    ) -> Result<RuntimePointerScreenshotReport, Box<dyn std::error::Error>> {
+        fs::create_dir_all(screenshot_dir)?;
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let path = screenshot_dir.join(format!("dodbogi-pointer-magnifier-{timestamp_ms}.ppm"));
+        let report: PointerMagnifierScreenshotReport = if let Some(magnifier) =
+            self.pointer_magnifier.as_mut()
+        {
+            magnifier
+                .save_screenshot(&path, self.pointer_magnifier_config)
+                .map_err(|error| format!("{error:?}"))?
+        } else {
+            dodbogi_win32::save_pointer_magnifier_screenshot(&path, self.pointer_magnifier_config)
+                .map_err(|error| format!("{error:?}"))?
+        };
+        Ok(RuntimePointerScreenshotReport {
+            path: report.path,
+            output_width: report.output_width,
+            output_height: report.output_height,
+        })
+    }
+
     fn forward_overlay_input(
         &mut self,
         overlay_hwnd: isize,
@@ -871,6 +1002,23 @@ fn handle_runtime_message(
     append_log_line(&paths.log_file, &format!("shell_message={message:?}"))?;
     runtime_println!(runtime_output, "Shell message: {message:?}");
 
+    if matches!(message, ShellMessage::Hotkey { .. })
+        && settings_window
+            .as_ref()
+            .map(|window| window.is_hotkey_capture_foreground())
+            .unwrap_or(false)
+    {
+        append_log_line(
+            &paths.log_file,
+            "runtime_hotkey_ignored settings_hotkey_capture_foreground",
+        )?;
+        runtime_println!(
+            runtime_output,
+            "Hotkey ignored while hotkey capture is foreground."
+        );
+        return Ok(false);
+    }
+
     match message {
         ShellMessage::Hotkey { id: 1, .. }
         | ShellMessage::Hotkey { id: 2, .. }
@@ -880,22 +1028,6 @@ fn handle_runtime_message(
         | ShellMessage::TrayMenu {
             item_id: "toggle-fullscreen",
         } => {
-            if matches!(message, ShellMessage::Hotkey { .. })
-                && settings_window
-                    .as_ref()
-                    .map(|window| window.is_foreground())
-                    .unwrap_or(false)
-            {
-                append_log_line(
-                    &paths.log_file,
-                    "runtime_hotkey_ignored settings_window_foreground",
-                )?;
-                runtime_println!(
-                    runtime_output,
-                    "Hotkey ignored while settings window is foreground."
-                );
-                return Ok(false);
-            }
             if let Some(stop) = controller.stop() {
                 append_log_line(
                     &paths.log_file,
@@ -960,6 +1092,23 @@ fn handle_runtime_message(
             }
             Ok(false)
         }
+        ShellMessage::Hotkey { id: 3, .. } => {
+            let settings = load_settings_from_path(&paths.settings_file)?;
+            let profile = active_runtime_profile(&settings);
+            match controller.toggle_pointer_magnifier(profile) {
+                Ok(Some(detail)) => {
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    let detail = format!("pointer_magnifier_toggle_error={error}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+            }
+            Ok(false)
+        }
         ShellMessage::TrayMenu {
             item_id: "settings",
         } => {
@@ -987,9 +1136,10 @@ fn handle_runtime_message(
         }
         ShellMessage::TrayMenu {
             item_id: "screenshot",
-        } => {
+        }
+        | ShellMessage::Hotkey { id: 4, .. } => {
             let settings = load_settings_from_path(&paths.settings_file)?;
-            let screenshot_dir = paths.root.join(settings.diagnostics.screenshot_dir_name);
+            let screenshot_dir = resolve_user_screenshot_dir(&settings.screenshots.window_dir);
             match controller.save_screenshot(&screenshot_dir)? {
                 Some(report) => {
                     append_log_line(
@@ -1015,6 +1165,86 @@ fn handle_runtime_message(
                     );
                 }
             }
+            Ok(false)
+        }
+        ShellMessage::Hotkey { id: 5, .. } => {
+            let settings = load_settings_from_path(&paths.settings_file)?;
+            controller.apply_pointer_magnifier_profile(active_runtime_profile(&settings));
+            let screenshot_dir = resolve_user_screenshot_dir(&settings.screenshots.pointer_dir);
+            match controller.save_pointer_magnifier_screenshot(&screenshot_dir) {
+                Ok(report) => {
+                    append_log_line(
+                        &paths.log_file,
+                        &format!(
+                            "pointer_magnifier_screenshot_saved path={} size={}x{}",
+                            report.path.display(),
+                            report.output_width,
+                            report.output_height
+                        ),
+                    )?;
+                    runtime_println!(
+                        runtime_output,
+                        "Pointer magnifier screenshot saved: {}",
+                        report.path.display()
+                    );
+                }
+                Err(error) => {
+                    let detail = format!("pointer_magnifier_screenshot_error={error}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+            }
+            Ok(false)
+        }
+        ShellMessage::Hotkey { id: 6, .. } => {
+            let mut settings = load_settings_from_path(&paths.settings_file)?;
+            let enabled = {
+                let profile = active_runtime_profile_mut(&mut settings);
+                profile.pointer_color_code_enabled = !profile.pointer_color_code_enabled;
+                profile.pointer_color_code_enabled
+            };
+            save_settings_to_path(&settings, &paths.settings_file)?;
+            controller.apply_pointer_magnifier_profile(active_runtime_profile(&settings));
+            if controller.is_pointer_magnifier_active() {
+                let _ = controller.update_pointer_magnifier();
+            }
+            let detail = format!("pointer_color_code_show={enabled}");
+            append_log_line(&paths.log_file, &detail)?;
+            runtime_println!(runtime_output, "{detail}");
+            Ok(false)
+        }
+        ShellMessage::Hotkey { id: 7, .. } => {
+            match dodbogi_win32::current_pointer_web_color()
+                .and_then(|color| dodbogi_win32::copy_text_to_clipboard(&color).map(|_| color))
+            {
+                Ok(color) => {
+                    let detail = format!("pointer_color_code_copied {color}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+                Err(error) => {
+                    let detail = format!("pointer_color_code_copy_error={error:?}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+            }
+            Ok(false)
+        }
+        ShellMessage::Hotkey { id: 8, .. } => {
+            let mut settings = load_settings_from_path(&paths.settings_file)?;
+            let enabled = {
+                let profile = active_runtime_profile_mut(&mut settings);
+                profile.draw_cursor = !profile.draw_cursor;
+                profile.draw_cursor
+            };
+            save_settings_to_path(&settings, &paths.settings_file)?;
+            controller.apply_pointer_magnifier_profile(active_runtime_profile(&settings));
+            if controller.is_pointer_magnifier_active() {
+                let _ = controller.update_pointer_magnifier();
+            }
+            let detail = format!("pointer_cursor_show={enabled}");
+            append_log_line(&paths.log_file, &detail)?;
+            runtime_println!(runtime_output, "{detail}");
             Ok(false)
         }
         ShellMessage::TrayMenu { item_id: "exit" } | ShellMessage::Quit => Ok(true),
@@ -1091,8 +1321,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
     let mut hotkeys = HotkeyRegistry::default();
     hotkeys.register_defaults();
     let initial_settings = load_settings_from_path(&paths.settings_file)?;
-    let mut runtime_output =
-        RuntimeTextLogOutput::new(initial_settings.ui.log_output_enabled, &paths.log_file);
+        let mut runtime_output = RuntimeTextLogOutput::new(false, &paths.log_file);
     let mut system_hotkeys = SystemHotkeyGuard::register_from_settings(&initial_settings);
 
     runtime_println!(runtime_output, "Dodbogi runtime");
@@ -1219,7 +1448,6 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
             match event {
                 settings_ui::SettingsUiEvent::HotkeysChanged => {
                     let settings = load_settings_from_path(&paths.settings_file)?;
-                    runtime_output.set_enabled(settings.ui.log_output_enabled, &paths.log_file);
                     system_hotkeys.replace_from_settings(&settings);
                     append_log_line(
                         &paths.log_file,
@@ -1238,7 +1466,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 settings_ui::SettingsUiEvent::ProfileChanged => {
                     let settings = load_settings_from_path(&paths.settings_file)?;
-                    runtime_output.set_enabled(settings.ui.log_output_enabled, &paths.log_file);
+                    controller.apply_pointer_magnifier_profile(active_runtime_profile(&settings));
                     if let Some(stop) = controller.stop_with_reason(StopReason::SettingsChanged) {
                         let detail = format!(
                             "settings_ui_profile_change_stopped_active_scaling source={} presented_frames={} reason={:?}",
@@ -1256,20 +1484,23 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 settings_ui::SettingsUiEvent::GlobalSettingsChanged => {
                     let settings = load_settings_from_path(&paths.settings_file)?;
-                    runtime_output.set_enabled(settings.ui.log_output_enabled, &paths.log_file);
                     append_log_line(
                         &paths.log_file,
                         &format!(
-                            "settings_ui_global_changed language={} log_output_enabled={}",
-                            settings.ui.language, settings.ui.log_output_enabled
+                            "settings_ui_global_changed language={}",
+                            settings.ui.language
                         ),
                     )?;
                     runtime_println!(
                         runtime_output,
-                        "Settings globals applied: language={} log_output_enabled={}",
-                        settings.ui.language,
-                        settings.ui.log_output_enabled
+                        "Settings globals applied: language={}",
+                        settings.ui.language
                     );
+                }
+                settings_ui::SettingsUiEvent::LogOutputRequested => {
+                    runtime_output.set_enabled(true, &paths.log_file);
+                    append_log_line(&paths.log_file, "settings_ui_log_output_opened")?;
+                    runtime_println!(runtime_output, "Log output opened");
                 }
                 settings_ui::SettingsUiEvent::WindowHiddenToTray => {
                     append_log_line(&paths.log_file, "settings_window_hidden_to_tray")?;
@@ -1282,6 +1513,19 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
         }
         if should_exit {
             break;
+        }
+
+        let pointer_magnifier_active = controller.is_pointer_magnifier_active();
+        if pointer_magnifier_active {
+            if let Err(error) = controller.update_pointer_magnifier() {
+                if Instant::now() >= next_recoverable_error_log {
+                    next_recoverable_error_log = Instant::now() + Duration::from_secs(1);
+                    let detail =
+                        format!("runtime_recoverable_error phase=pointer_magnifier detail={error}");
+                    let _ = append_log_line(&paths.log_file, &detail);
+                    runtime_println!(runtime_output, "{detail}");
+                }
+            }
         }
 
         if controller.is_active() {
@@ -1400,7 +1644,11 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(if pointer_magnifier_active {
+                16
+            } else {
+                50
+            }));
         }
     }
 
