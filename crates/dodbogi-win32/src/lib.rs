@@ -4,8 +4,8 @@
 //! any optional WinUI 3 shell fallback.
 
 use dodbogi_core::{
-    AppProfile, CheckStatus, DodbogiSettings, Dpi, MonitorGeometry, PARITY_TARGET, PhysicalRect,
-    SourceWindow, StartupCheck, StartupReport, SupportEnvelope,
+    AppProfile, CheckStatus, DodbogiSettings, Dpi, MonitorGeometry, PhysicalRect, SourceWindow,
+    StartupCheck, StartupReport, SupportEnvelope, PARITY_TARGET,
 };
 use dodbogi_input::{InputEventKind, SourceInputEvent};
 
@@ -456,12 +456,12 @@ pub struct OverlayStyleContract {
 #[cfg(windows)]
 mod imp {
     use super::{
+        default_hotkeys, default_tray_menu_items, hotkeys_from_settings, input_event_kind_name,
         ControlledInputProbeReport, CursorCaptureReport, Dpi, HotkeySpec, InputDeliveryMode,
         InputDeliveryReport, MonitorGeometry, OverlayStyleContract, PhysicalRect,
         PointerMagnifierConfig, PointerMagnifierScreenshotReport, PointerMagnifierUpdateReport,
         ShellMessage, SourceInputEvent, SourceWindow, SystemHotkeyRegistration, SystemHotkeyReport,
-        TrayMenuItem, Win32Error, default_hotkeys, default_tray_menu_items, hotkeys_from_settings,
-        input_event_kind_name,
+        TrayMenuItem, Win32Error,
     };
     use dodbogi_core::DodbogiSettings;
     use dodbogi_input::{
@@ -470,22 +470,24 @@ mod imp {
     };
     use std::{
         ffi::c_void,
-        fs,
+        fs::{self, File},
+        io::BufWriter,
         mem::size_of,
         path::{Path, PathBuf},
         ptr::null_mut,
         sync::{
-            Mutex, OnceLock,
             atomic::{AtomicI32, Ordering},
+            Mutex, OnceLock,
         },
         thread,
         time::Duration,
     };
     use windows::{
+        core::{BOOL, PCSTR, PCWSTR},
         Graphics::Capture::GraphicsCaptureItem,
         Win32::{
             Foundation::{
-                COLORREF, GetLastError, HANDLE, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, POINT,
+                GetLastError, COLORREF, HANDLE, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, POINT,
                 RECT, TRUE, WPARAM,
             },
             Graphics::{
@@ -494,80 +496,78 @@ mod imp {
                     D3D_FEATURE_LEVEL_11_1,
                 },
                 Direct3D11::{
-                    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
-                    ID3D11Device, ID3D11DeviceContext,
+                    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
                 },
-                Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute},
+                Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
                 Dxgi::IDXGIAdapter,
                 Gdi::{
-                    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, BitBlt, CAPTUREBLT,
-                    ClientToScreen, CombineRgn, CreateCompatibleBitmap, CreateCompatibleDC,
-                    CreatePen, CreateRectRgn, CreateSolidBrush, DIB_RGB_COLORS, DeleteDC,
+                    BeginPaint, BitBlt, ClientToScreen, CombineRgn, CreateCompatibleBitmap,
+                    CreateCompatibleDC, CreatePen, CreateRectRgn, CreateSolidBrush, DeleteDC,
                     DeleteObject, EndPaint, EnumDisplayMonitors, FillRect, GetDC, GetDIBits,
-                    GetMonitorInfoW, GetPixel, GetStockObject, HBITMAP, HDC, HGDIOBJ, HMONITOR,
-                    HOLLOW_BRUSH, InvalidateRect, MONITORINFO, PAINTSTRUCT, PS_SOLID, RGN_OR,
-                    ROP_CODE, Rectangle, ReleaseDC, SRCCOPY, SelectObject, SetBkMode, SetTextColor,
-                    SetWindowRgn, StretchBlt, TRANSPARENT, TextOutW, UpdateWindow,
+                    GetMonitorInfoW, GetPixel, GetStockObject, InvalidateRect, Rectangle,
+                    ReleaseDC, SelectObject, SetBkMode, SetTextColor, SetWindowRgn, StretchBlt,
+                    TextOutW, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+                    DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ, HMONITOR, HOLLOW_BRUSH, MONITORINFO,
+                    PAINTSTRUCT, PS_SOLID, RGN_OR, ROP_CODE, SRCCOPY, TRANSPARENT,
                 },
             },
             System::{
                 Console::{
-                    CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT,
-                    CTRL_SHUTDOWN_EVENT, SetConsoleCtrlHandler,
+                    SetConsoleCtrlHandler, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT,
+                    CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT,
                 },
                 DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData},
                 LibraryLoader::{GetModuleHandleW, GetProcAddress},
-                Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
+                Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE},
                 Threading::GetCurrentProcessId,
                 WinRT::{
-                    Graphics::Capture::IGraphicsCaptureItemInterop, RO_INIT_MULTITHREADED,
-                    RoInitialize,
+                    Graphics::Capture::IGraphicsCaptureItemInterop, RoInitialize,
+                    RO_INIT_MULTITHREADED,
                 },
             },
             UI::{
                 HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
                 Input::KeyboardAndMouse::{
-                    HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-                    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
-                    MOD_SHIFT, MOD_WIN, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-                    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
-                    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
-                    RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY,
+                    RegisterHotKey, SendInput, UnregisterHotKey, HOT_KEY_MODIFIERS, INPUT, INPUT_0,
+                    INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+                    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, MOUSEEVENTF_LEFTDOWN,
+                    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
+                    MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+                    MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
                 },
                 Magnification::{MagInitialize, MagShowSystemCursor},
                 Shell::{
-                    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION,
-                    NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
+                    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
+                    NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
                 },
                 WindowsAndMessaging::{
-                    AppendMenuW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CURSORINFO, ClipCursor,
-                    CreatePopupMenu, CreateWindowExW, DI_NORMAL, DefWindowProcW, DestroyMenu,
-                    DestroyWindow, DispatchMessageW, DrawIconEx, EnumWindows, GUI_INMOVESIZE,
-                    GUITHREADINFO, GWLP_HWNDPARENT, GetClientRect, GetClipCursor, GetCursorInfo,
-                    GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetIconInfo,
-                    GetSystemMetrics, GetWindowRect, GetWindowTextLengthW,
-                    GetWindowThreadProcessId, HICON, HTCLIENT, HTTRANSPARENT, HWND_TOP,
-                    HWND_TOPMOST, ICONINFO, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON, IsWindow,
-                    IsWindowVisible, LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY, LoadCursorW,
-                    LoadIconW, LoadImageW, MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED,
-                    PM_REMOVE, PeekMessageW, PostMessageW, RegisterClassW, SM_CXVIRTUALSCREEN,
+                    AppendMenuW, ClipCursor, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
+                    DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, EnumWindows,
+                    GetClientRect, GetClipCursor, GetCursorInfo, GetCursorPos, GetForegroundWindow,
+                    GetGUIThreadInfo, GetIconInfo, GetSystemMetrics, GetWindowRect,
+                    GetWindowTextLengthW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
+                    LoadCursorW, LoadIconW, LoadImageW, PeekMessageW, PostMessageW, RegisterClassW,
+                    SetCursorPos, SetForegroundWindow, SetLayeredWindowAttributes,
+                    SetWindowLongPtrW, SetWindowPos, ShowCursor, SystemParametersInfoW,
+                    TranslateMessage, WindowFromPoint, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW,
+                    CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE, GWLP_HWNDPARENT, HICON,
+                    HTCLIENT, HTTRANSPARENT, HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW,
+                    IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY,
+                    MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED, PM_REMOVE, SM_CXVIRTUALSCREEN,
                     SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETMOUSE,
                     SPI_GETMOUSESPEED, SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_HIDEWINDOW,
                     SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSENDCHANGING, SWP_NOSIZE,
-                    SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-                    SetCursorPos, SetForegroundWindow, SetLayeredWindowAttributes,
-                    SetWindowLongPtrW, SetWindowPos, ShowCursor, SystemParametersInfoW,
-                    TranslateMessage, WM_APP, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
-                    WM_ERASEBKGND, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-                    WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-                    WM_NCHITTEST, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
-                    WM_RBUTTONUP, WM_SETCURSOR, WM_USER, WNDCLASSW, WS_EX_LAYERED,
-                    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
-                    WindowFromPoint,
+                    SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP,
+                    WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_ERASEBKGND, WM_HOTKEY,
+                    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
+                    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
+                    WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP,
+                    WM_SETCURSOR, WM_USER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+                    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
-        core::{BOOL, PCSTR, PCWSTR},
     };
 
     #[derive(Default)]
@@ -2037,7 +2037,7 @@ mod imp {
         config: PointerMagnifierConfig,
     ) -> Result<PointerMagnifierScreenshotReport, Win32Error> {
         let geometry = pointer_magnifier_geometry(config.sanitized())?;
-        capture_screen_rect_to_ppm(
+        capture_screen_rect_to_png(
             path,
             geometry.source_rect,
             geometry.output_width,
@@ -2149,7 +2149,7 @@ mod imp {
         }
     }
 
-    fn capture_screen_rect_to_ppm(
+    fn capture_screen_rect_to_png(
         path: &Path,
         source: PhysicalRect,
         output_width: u32,
@@ -2228,16 +2228,28 @@ mod imp {
         if lines == 0 {
             return Err(Win32Error::Api("GetDIBits screenshot failed".to_string()));
         }
-        let mut ppm = Vec::with_capacity(32 + (out_w as usize) * (out_h as usize) * 3);
-        ppm.extend_from_slice(format!("P6\n{} {}\n255\n", out_w, out_h).as_bytes());
+        let mut rgb = Vec::with_capacity((out_w as usize) * (out_h as usize) * 3);
         for chunk in pixels.chunks_exact(4) {
-            ppm.push(chunk[2]);
-            ppm.push(chunk[1]);
-            ppm.push(chunk[0]);
+            rgb.extend_from_slice(&[chunk[2], chunk[1], chunk[0]]);
         }
-        fs::write(path, ppm).map_err(|error| {
+        let file = File::create(path).map_err(|error| {
             Win32Error::Api(format!(
-                "pointer magnifier screenshot write failed for {}: {error:?}",
+                "pointer magnifier screenshot create failed for {}: {error:?}",
+                path.display()
+            ))
+        })?;
+        let mut encoder = png::Encoder::new(BufWriter::new(file), out_w as u32, out_h as u32);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(|error| {
+            Win32Error::Api(format!(
+                "pointer magnifier screenshot PNG header failed for {}: {error:?}",
+                path.display()
+            ))
+        })?;
+        writer.write_image_data(&rgb).map_err(|error| {
+            Win32Error::Api(format!(
+                "pointer magnifier screenshot PNG pixels failed for {}: {error:?}",
                 path.display()
             ))
         })
@@ -3803,11 +3815,10 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     use super::{
-        ControlledInputProbeReport, CursorCaptureReport, InputDeliveryMode, InputDeliveryReport,
-        MonitorGeometry, OverlayStyleContract, PhysicalRect, PointerMagnifierConfig,
-        PointerMagnifierScreenshotReport, PointerMagnifierUpdateReport, ShellMessage,
-        SourceInputEvent, SourceWindow, SystemHotkeyReport, TrayMenuItem, Win32Error,
-        input_event_kind_name,
+        input_event_kind_name, ControlledInputProbeReport, CursorCaptureReport, InputDeliveryMode,
+        InputDeliveryReport, MonitorGeometry, OverlayStyleContract, PhysicalRect,
+        PointerMagnifierConfig, PointerMagnifierScreenshotReport, PointerMagnifierUpdateReport,
+        ShellMessage, SourceInputEvent, SourceWindow, SystemHotkeyReport, TrayMenuItem, Win32Error,
     };
     use dodbogi_core::DodbogiSettings;
     use dodbogi_input::InputTransform;
@@ -4200,11 +4211,10 @@ mod tests {
         tray.install_placeholder();
         assert!(tray.is_installed());
         assert!(tray.menu_items().iter().any(|item| item.id == "settings"));
-        assert!(
-            tray.menu_items()
-                .iter()
-                .any(|item| item.id == "diagnostics")
-        );
+        assert!(tray
+            .menu_items()
+            .iter()
+            .any(|item| item.id == "diagnostics"));
         assert!(tray.menu_items().iter().any(|item| item.id == "exit"));
         tray.remove();
         assert!(!tray.is_installed());

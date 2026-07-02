@@ -1,52 +1,53 @@
 use dodbogi_core::{
-    AppProfile, DodbogiSettings, RuntimePaths, load_settings_from_path, save_settings_to_path,
+    load_settings_from_path, save_settings_to_path, AppProfile, DodbogiSettings, RuntimePaths,
 };
 use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        Mutex, OnceLock,
         atomic::{AtomicBool, AtomicIsize, Ordering},
+        Mutex, OnceLock,
     },
 };
 use windows::{
+    core::{w, PCWSTR, PWSTR},
     Win32::{
         Foundation::{
-            COLORREF, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
+            GetLastError, COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
         },
         Graphics::Gdi::{
-            AddFontMemResourceEx, BeginPaint, CLIP_DEFAULT_PRECIS, ClientToScreen,
-            CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DEFAULT_CHARSET,
-            DEFAULT_GUI_FONT, DEFAULT_PITCH, DEFAULT_QUALITY, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT,
-            DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, EndPaint,
-            FillRect, GetStockObject, HBRUSH, HDC, HGDIOBJ, HOLLOW_BRUSH, InvalidateRect,
-            OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE,
-            RDW_UPDATENOW, Rectangle, RedrawWindow, RoundRect, SRCCOPY, SelectObject, SetBkMode,
-            SetTextColor, StretchBlt, TRANSPARENT, TextOutW, UpdateWindow, WHITE_BRUSH,
+            AddFontMemResourceEx, BeginPaint, ClientToScreen, CreateCompatibleDC, CreateFontW,
+            CreatePen, CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect,
+            GetStockObject, InvalidateRect, Rectangle, RedrawWindow, RoundRect, SelectObject,
+            SetBkMode, SetTextColor, StretchBlt, TextOutW, UpdateWindow, CLIP_DEFAULT_PRECIS,
+            DEFAULT_CHARSET, DEFAULT_GUI_FONT, DEFAULT_PITCH, DEFAULT_QUALITY, DT_CENTER,
+            DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HBRUSH, HDC, HGDIOBJ,
+            HOLLOW_BRUSH, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, RDW_ALLCHILDREN, RDW_ERASE,
+            RDW_INVALIDATE, RDW_UPDATENOW, SRCCOPY, TRANSPARENT, WHITE_BRUSH,
         },
         System::{Com::CoTaskMemFree, LibraryLoader::GetModuleHandleW},
         UI::{
             Input::KeyboardAndMouse::{
-                EnableWindow, GetAsyncKeyState, GetFocus, GetKeyState, SetFocus, TME_LEAVE,
-                TRACKMOUSEEVENT, TrackMouseEvent, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+                EnableWindow, GetAsyncKeyState, GetFocus, GetKeyState, SetFocus, TrackMouseEvent,
+                TME_LEAVE, TRACKMOUSEEVENT, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
             },
             Shell::{
-                BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW, SHBrowseForFolderW,
-                SHGetPathFromIDListW,
+                SHBrowseForFolderW, SHGetPathFromIDListW, BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS,
+                BROWSEINFOW,
             },
             WindowsAndMessaging::{
-                BN_CLICKED, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CallWindowProcW,
-                CreateWindowExW, DefWindowProcW, EN_CHANGE, EN_KILLFOCUS, ES_AUTOHSCROLL,
-                ES_AUTOVSCROLL, ES_MULTILINE, ES_READONLY, GWLP_WNDPROC, GetClientRect,
-                GetCursorPos, GetDlgCtrlID, GetDlgItem, GetForegroundWindow, GetParent,
-                GetWindowRect, GetWindowTextLengthW, GetWindowTextW, HMENU, HWND_TOP, IDC_ARROW,
-                IDYES, IMAGE_BITMAP, IMAGE_ICON, IsWindowVisible, KillTimer, LB_ADDSTRING,
-                LB_GETCURSEL, LB_RESETCONTENT, LB_SETCURSEL, LBN_DBLCLK, LBN_SELCHANGE, LBS_NOTIFY,
-                LR_LOADFROMFILE, LoadCursorW, LoadImageW, MB_ICONERROR, MB_ICONQUESTION, MB_OK,
-                MB_YESNO, MINMAXINFO, MessageBoxW, RegisterClassW, SET_WINDOW_POS_FLAGS,
-                STM_SETIMAGE, SW_HIDE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-                SWP_NOZORDER, SWP_SHOWWINDOW, SendMessageW, SetForegroundWindow, SetTimer,
-                SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE,
+                CallWindowProcW, CreateWindowExW, DefWindowProcW, GetClientRect, GetCursorPos,
+                GetDlgCtrlID, GetDlgItem, GetForegroundWindow, GetParent, GetWindowRect,
+                GetWindowTextLengthW, GetWindowTextW, IsWindowVisible, KillTimer, LoadCursorW,
+                LoadImageW, MessageBoxW, RegisterClassW, SendMessageW, SetForegroundWindow,
+                SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, BN_CLICKED,
+                CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, EN_CHANGE, EN_KILLFOCUS,
+                ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, ES_READONLY, GWLP_WNDPROC, HMENU,
+                HWND_TOP, IDC_ARROW, IDYES, IMAGE_BITMAP, IMAGE_ICON, LBN_DBLCLK, LBN_SELCHANGE,
+                LBS_NOTIFY, LB_ADDSTRING, LB_GETCURSEL, LB_RESETCONTENT, LB_SETCURSEL,
+                LR_LOADFROMFILE, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_YESNO, MINMAXINFO,
+                SET_WINDOW_POS_FLAGS, STM_SETIMAGE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE,
                 WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORSTATIC, WM_DESTROY,
                 WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
                 WM_MOUSEMOVE, WM_NCCREATE, WM_NCLBUTTONDOWN, WM_PAINT, WM_PARENTNOTIFY, WM_SETFONT,
@@ -56,7 +57,6 @@ use windows::{
             },
         },
     },
-    core::{PCWSTR, PWSTR, w},
 };
 
 const MIN_TRACK_WIDTH: i32 = 720;
@@ -447,6 +447,27 @@ pub fn drain_settings_ui_events() -> Vec<SettingsUiEvent> {
         .lock()
         .map(|mut events| events.drain(..).collect())
         .unwrap_or_default()
+}
+
+pub fn refresh_from_settings_file(paths: &RuntimePaths) -> Result<bool, String> {
+    let mut settings = load_settings_from_path(&paths.settings_file)
+        .map_err(|error| format!("settings reload failed: {error}"))?;
+    if normalize_loaded_settings(&mut settings) {
+        save_settings_to_path(&settings, &paths.settings_file)
+            .map_err(|error| format!("settings migration save failed: {error}"))?;
+    }
+    let selected_index = selected_index_for_settings(&settings);
+
+    let mut slot = state_slot()
+        .lock()
+        .map_err(|_| "settings UI lock poisoned".to_string())?;
+    let Some(state) = slot.as_mut() else {
+        return Ok(false);
+    };
+    state.settings = settings;
+    state.selected_index = selected_index;
+    refresh_all_controls(state);
+    Ok(true)
 }
 
 struct SettingsUiState {
@@ -1699,7 +1720,7 @@ fn sidebar_layout_state(hwnd: HWND) -> (usize, usize, bool) {
     (
         profiles(&state.settings).len(),
         state.selected_index,
-        state.settings_panel_visible || state.hotkey_panel_visible,
+        state.hotkey_panel_visible,
     )
 }
 
@@ -1721,7 +1742,7 @@ fn layout_profile_buttons_for_state(state: &SettingsUiState) {
         &layout,
         profile_count,
         state.selected_index,
-        state.settings_panel_visible || state.hotkey_panel_visible,
+        state.hotkey_panel_visible,
     );
 }
 
@@ -4556,6 +4577,7 @@ fn show_settings_panel(state: &mut SettingsUiState, visible: bool) {
         }
     }
     update_modal_base_enabled(state);
+    layout_profile_buttons_for_state(state);
     refresh_localized_texts(state);
     invalidate(hwnd);
 }
@@ -4645,6 +4667,7 @@ fn show_hotkey_panel(state: &mut SettingsUiState, visible: bool) {
         raise_panel_children(hwnd, hotkey_panel_ids());
     }
     update_modal_base_enabled(state);
+    layout_profile_buttons_for_state(state);
     refresh_localized_texts(state);
     refresh_hotkey_panel_texts(state);
     invalidate(hwnd);

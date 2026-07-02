@@ -907,14 +907,14 @@ impl ProductRuntimeController {
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
         let path = screenshot_dir.join(format!(
-            "dodbogi-scaling-{}-{timestamp_ms}.ppm",
+            "dodbogi-scaling-{}-{timestamp_ms}.png",
             active.source_hwnd
         ));
         let Some(scaler) = active.scaler.as_mut() else {
             return Ok(None);
         };
         scaler
-            .write_current_backbuffer_ppm(&path)
+            .write_current_backbuffer_png(&path)
             .map_err(|error| format!("{error:?}"))?;
         Ok(Some(RuntimeScreenshotReport {
             path,
@@ -932,7 +932,7 @@ impl ProductRuntimeController {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
-        let path = screenshot_dir.join(format!("dodbogi-pointer-magnifier-{timestamp_ms}.ppm"));
+        let path = screenshot_dir.join(format!("dodbogi-pointer-magnifier-{timestamp_ms}.png"));
         let report: PointerMagnifierScreenshotReport = if let Some(magnifier) =
             self.pointer_magnifier.as_mut()
         {
@@ -1204,6 +1204,17 @@ fn handle_runtime_message(
                 profile.pointer_color_code_enabled
             };
             save_settings_to_path(&settings, &paths.settings_file)?;
+            match settings_ui::refresh_from_settings_file(paths) {
+                Ok(true) => {
+                    append_log_line(&paths.log_file, "settings_ui_refreshed pointer_color_code")?;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    let detail = format!("settings_ui_refresh_error pointer_color_code={error}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+            }
             controller.apply_pointer_magnifier_profile(active_runtime_profile(&settings));
             if controller.is_pointer_magnifier_active() {
                 let _ = controller.update_pointer_magnifier();
@@ -1238,6 +1249,17 @@ fn handle_runtime_message(
                 profile.draw_cursor
             };
             save_settings_to_path(&settings, &paths.settings_file)?;
+            match settings_ui::refresh_from_settings_file(paths) {
+                Ok(true) => {
+                    append_log_line(&paths.log_file, "settings_ui_refreshed pointer_cursor")?;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    let detail = format!("settings_ui_refresh_error pointer_cursor={error}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+            }
             controller.apply_pointer_magnifier_profile(active_runtime_profile(&settings));
             if controller.is_pointer_magnifier_active() {
                 let _ = controller.update_pointer_magnifier();
@@ -1321,7 +1343,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
     let mut hotkeys = HotkeyRegistry::default();
     hotkeys.register_defaults();
     let initial_settings = load_settings_from_path(&paths.settings_file)?;
-        let mut runtime_output = RuntimeTextLogOutput::new(false, &paths.log_file);
+    let mut runtime_output = RuntimeTextLogOutput::new(false, &paths.log_file);
     let mut system_hotkeys = SystemHotkeyGuard::register_from_settings(&initial_settings);
 
     runtime_println!(runtime_output, "Dodbogi runtime");

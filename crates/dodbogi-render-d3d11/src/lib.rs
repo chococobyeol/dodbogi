@@ -148,7 +148,7 @@ mod d3d11 {
     use std::{
         ffi::{c_void, CString},
         fs::File,
-        io::Write,
+        io::{BufWriter, Write},
         mem::{size_of, size_of_val},
         path::Path,
         ptr::null_mut,
@@ -640,12 +640,7 @@ mod d3d11 {
         Ok(texture)
     }
 
-    fn write_texture_to_ppm(
-        d3d: &HardwareDevice,
-        source: &ID3D11Texture2D,
-        path: impl AsRef<Path>,
-    ) -> Result<(), RenderError> {
-        let path = path.as_ref();
+    fn create_screenshot_parent_dir(path: &Path) -> Result<(), RenderError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
                 RenderError::Api(format!(
@@ -654,7 +649,13 @@ mod d3d11 {
                 ))
             })?;
         }
+        Ok(())
+    }
 
+    fn read_texture_to_bgra8(
+        d3d: &HardwareDevice,
+        source: &ID3D11Texture2D,
+    ) -> Result<(u32, u32, Vec<u8>), RenderError> {
         let mut source_desc = D3D11_TEXTURE2D_DESC::default();
         unsafe { source.GetDesc(&mut source_desc) };
         let desc = D3D11_TEXTURE2D_DESC {
@@ -695,34 +696,92 @@ mod d3d11 {
         }
         .map_err(|error| RenderError::Api(format!("Map screenshot staging failed: {error:?}")))?;
 
-        let result = (|| -> Result<(), RenderError> {
-            let mut file = File::create(path).map_err(|error| {
-                RenderError::Api(format!(
-                    "failed creating screenshot {}: {error}",
-                    path.display()
-                ))
-            })?;
-            write!(file, "P6\n{} {}\n255\n", desc.Width, desc.Height).map_err(|error| {
-                RenderError::Api(format!("failed writing screenshot header: {error}"))
-            })?;
+        let result = (|| -> Result<Vec<u8>, RenderError> {
+            if mapped.pData.is_null() {
+                return Err(RenderError::Api(
+                    "Map screenshot staging returned null data".to_string(),
+                ));
+            }
             let row_pitch = mapped.RowPitch as usize;
             let row_bytes = desc.Width as usize * 4;
+            if row_pitch < row_bytes {
+                return Err(RenderError::Api(format!(
+                    "screenshot row pitch {row_pitch} is smaller than row bytes {row_bytes}"
+                )));
+            }
+            let mut pixels = Vec::with_capacity(row_bytes * desc.Height as usize);
             for y in 0..desc.Height as usize {
                 let row = unsafe {
                     slice::from_raw_parts(mapped.pData.cast::<u8>().add(y * row_pitch), row_bytes)
                 };
-                for pixel in row.chunks_exact(4) {
-                    file.write_all(&[pixel[2], pixel[1], pixel[0]])
-                        .map_err(|error| {
-                            RenderError::Api(format!("failed writing screenshot pixels: {error}"))
-                        })?;
-                }
+                pixels.extend_from_slice(row);
             }
-            Ok(())
+            Ok(pixels)
         })();
 
         unsafe { d3d.context.Unmap(&resource, 0) };
-        result
+        Ok((desc.Width, desc.Height, result?))
+    }
+
+    fn bgra8_to_rgb8(bgra: &[u8]) -> Vec<u8> {
+        let mut rgb = Vec::with_capacity(bgra.len() / 4 * 3);
+        for pixel in bgra.chunks_exact(4) {
+            rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
+        }
+        rgb
+    }
+
+    fn write_texture_to_ppm(
+        d3d: &HardwareDevice,
+        source: &ID3D11Texture2D,
+        path: impl AsRef<Path>,
+    ) -> Result<(), RenderError> {
+        let path = path.as_ref();
+        create_screenshot_parent_dir(path)?;
+        let (width, height, pixels) = read_texture_to_bgra8(d3d, source)?;
+        let mut file = File::create(path).map_err(|error| {
+            RenderError::Api(format!(
+                "failed creating screenshot {}: {error}",
+                path.display()
+            ))
+        })?;
+        write!(file, "P6\n{} {}\n255\n", width, height).map_err(|error| {
+            RenderError::Api(format!("failed writing screenshot header: {error}"))
+        })?;
+        for pixel in pixels.chunks_exact(4) {
+            file.write_all(&[pixel[2], pixel[1], pixel[0]])
+                .map_err(|error| {
+                    RenderError::Api(format!("failed writing screenshot pixels: {error}"))
+                })?;
+        }
+        Ok(())
+    }
+
+    fn write_texture_to_png(
+        d3d: &HardwareDevice,
+        source: &ID3D11Texture2D,
+        path: impl AsRef<Path>,
+    ) -> Result<(), RenderError> {
+        let path = path.as_ref();
+        create_screenshot_parent_dir(path)?;
+        let (width, height, pixels) = read_texture_to_bgra8(d3d, source)?;
+        let rgb = bgra8_to_rgb8(&pixels);
+        let file = File::create(path).map_err(|error| {
+            RenderError::Api(format!(
+                "failed creating screenshot {}: {error}",
+                path.display()
+            ))
+        })?;
+        let mut encoder = png::Encoder::new(BufWriter::new(file), width, height);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|error| RenderError::Api(format!("failed writing PNG header: {error}")))?;
+        writer
+            .write_image_data(&rgb)
+            .map_err(|error| RenderError::Api(format!("failed writing PNG pixels: {error}")))?;
+        Ok(())
     }
 
     pub struct WgcEffectScaler {
@@ -1023,6 +1082,33 @@ mod d3d11 {
                     RenderError::Api(format!("IDXGISwapChain::GetBuffer failed: {error:?}"))
                 })?;
             write_texture_to_ppm(&self.d3d, &back_buffer, path)
+        }
+
+        pub fn write_presented_frame_png(
+            &mut self,
+            path: impl AsRef<Path>,
+            timeout: Duration,
+        ) -> Result<TextureEffectPresentReport, RenderError> {
+            let report = self.present_next_frame(timeout)?;
+            if report.presented_frames == 0 {
+                return Err(RenderError::Api(format!(
+                    "no presented frame available for screenshot; last_poll_error={:?}",
+                    report.last_poll_error
+                )));
+            }
+            self.write_current_backbuffer_png(path)?;
+            Ok(report)
+        }
+
+        pub fn write_current_backbuffer_png(
+            &self,
+            path: impl AsRef<Path>,
+        ) -> Result<(), RenderError> {
+            let back_buffer: ID3D11Texture2D =
+                unsafe { self.swap_chain.GetBuffer(0) }.map_err(|error| {
+                    RenderError::Api(format!("IDXGISwapChain::GetBuffer failed: {error:?}"))
+                })?;
+            write_texture_to_png(&self.d3d, &back_buffer, path)
         }
 
         fn update_fullscreen_vertices(
@@ -1376,6 +1462,21 @@ mod d3d11 {
         }
 
         pub fn write_current_backbuffer_ppm(
+            &self,
+            _path: impl AsRef<Path>,
+        ) -> Result<(), RenderError> {
+            Err(RenderError::NotImplemented("Windows-only"))
+        }
+
+        pub fn write_presented_frame_png(
+            &mut self,
+            _path: impl AsRef<Path>,
+            _timeout: Duration,
+        ) -> Result<TextureEffectPresentReport, RenderError> {
+            Err(RenderError::NotImplemented("Windows-only"))
+        }
+
+        pub fn write_current_backbuffer_png(
             &self,
             _path: impl AsRef<Path>,
         ) -> Result<(), RenderError> {

@@ -24,6 +24,7 @@ dodbogi-render-d3d11 = { path = "crates/dodbogi-render-d3d11" }
 dodbogi-effects = { path = "crates/dodbogi-effects" }
 dodbogi-input = { path = "crates/dodbogi-input" }
 dodbogi-parity = { path = "crates/dodbogi-parity" }
+png = "0.17"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
