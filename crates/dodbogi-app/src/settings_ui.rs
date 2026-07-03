@@ -287,6 +287,10 @@ const ID_HOTKEY_CURRENT_LABEL: i32 = 1205;
 const ID_HOTKEY_CURRENT_VALUE: i32 = 1206;
 const ID_HOTKEY_NEW_LABEL: i32 = 1207;
 const ID_HOTKEY_NEW_VALUE: i32 = 1208;
+const ID_HOTKEY_ICON_DIM: i32 = 1210;
+const ID_SCALE_ICON_DIM: i32 = 1211;
+const ID_POINTER_ICON_DIM: i32 = 1212;
+const ID_REGION_ICON_DIM: i32 = 1213;
 const ID_LOG_EDIT: i32 = 1301;
 const EM_SETSEL_MSG: u32 = 0x00B1;
 const EM_REPLACESEL_MSG: u32 = 0x00C2;
@@ -1641,29 +1645,45 @@ fn content_scrollbar_thumb_rect(hwnd: HWND) -> Option<RECT> {
     })
 }
 
-fn draw_content_scrollbar(hdc: HDC, hwnd: HWND) {
+fn draw_content_scrollbar(hdc: HDC, hwnd: HWND, disabled: bool) {
     let Some(track) = content_scrollbar_track_rect(hwnd) else {
         return;
     };
     let Some(thumb) = content_scrollbar_thumb_rect(hwnd) else {
         return;
     };
-    draw_pixel_scroll_track(hdc, &track);
-    draw_pixel_scroll_thumb(hdc, &thumb);
+    draw_pixel_scroll_track(hdc, &track, disabled);
+    draw_pixel_scroll_thumb(hdc, &thumb, disabled);
 }
 
-fn draw_pixel_scroll_track(hdc: HDC, rect: &RECT) {
+fn draw_pixel_scroll_track(hdc: HDC, rect: &RECT, disabled: bool) {
     fill_rect_color(hdc, rect, ui_color(UiColor::ControlBg));
-    draw_pixel_rect_outline(hdc, rect, ui_color(UiColor::Stroke), 1);
+    draw_pixel_rect_outline(hdc, rect, control_frame_color(disabled), 1);
     let inner = inset_rect(*rect, 2, 2);
     if inner.right > inner.left && inner.bottom > inner.top {
-        fill_rect_color(hdc, &inner, ui_color(UiColor::ScrollTrack));
+        fill_rect_color(
+            hdc,
+            &inner,
+            if disabled {
+                ui_color(UiColor::DisabledBg)
+            } else {
+                ui_color(UiColor::ScrollTrack)
+            },
+        );
     }
 }
 
-fn draw_pixel_scroll_thumb(hdc: HDC, rect: &RECT) {
-    fill_rect_color(hdc, rect, ui_color(UiColor::ToggleActive));
-    draw_pixel_rect_outline(hdc, rect, ui_color(UiColor::Stroke), 1);
+fn draw_pixel_scroll_thumb(hdc: HDC, rect: &RECT, disabled: bool) {
+    fill_rect_color(
+        hdc,
+        rect,
+        if disabled {
+            ui_color(UiColor::DisabledBg)
+        } else {
+            ui_color(UiColor::ToggleActive)
+        },
+    );
+    draw_pixel_rect_outline(hdc, rect, control_frame_color(disabled), 1);
     let mid_y = rect.top + (rect.bottom - rect.top) / 2;
     let grip = RECT {
         left: rect.left + 3,
@@ -1672,7 +1692,15 @@ fn draw_pixel_scroll_thumb(hdc: HDC, rect: &RECT) {
         bottom: mid_y,
     };
     if grip.right > grip.left {
-        fill_rect_color(hdc, &grip, ui_color(UiColor::TextMuted));
+        fill_rect_color(
+            hdc,
+            &grip,
+            if disabled {
+                ui_color(UiColor::TextWeak)
+            } else {
+                ui_color(UiColor::TextMuted)
+            },
+        );
     }
 }
 
@@ -1828,6 +1856,26 @@ fn static_text_color(child: HWND) -> COLORREF {
         ui_color(UiColor::Text)
     } else {
         ui_color(UiColor::TextWeak)
+    }
+}
+
+fn content_text_color_for_root(hwnd: HWND) -> COLORREF {
+    if modal_active_for_root(hwnd) {
+        ui_color(UiColor::TextWeak)
+    } else {
+        ui_color(UiColor::Text)
+    }
+}
+
+fn content_frame_color_for_root(hwnd: HWND) -> COLORREF {
+    control_frame_color(modal_active_for_root(hwnd))
+}
+
+fn control_frame_color(disabled: bool) -> COLORREF {
+    if disabled {
+        ui_color(UiColor::TextWeak)
+    } else {
+        ui_color(UiColor::Stroke)
     }
 }
 
@@ -2078,6 +2126,14 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_HOTKEY_ICON,
+        shortcut_icon_x,
+        shortcut_title_y,
+        32,
+        32,
+    );
+    move_child(
+        hwnd,
+        ID_HOTKEY_ICON_DIM,
         shortcut_icon_x,
         shortcut_title_y,
         32,
@@ -2432,6 +2488,14 @@ fn layout_controls(hwnd: HWND) {
     );
     move_child(
         hwnd,
+        ID_SCALE_ICON_DIM,
+        window_zoom.left + SECTION_ICON_X_OFFSET,
+        window_zoom.top + SECTION_TITLE_Y_OFFSET,
+        32,
+        32,
+    );
+    move_child(
+        hwnd,
         ID_SCALE_LABEL,
         window_label_x,
         window_row1_y,
@@ -2493,6 +2557,14 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_POINTER_ICON,
+        pointer.left + SECTION_ICON_X_OFFSET,
+        pointer.top + SECTION_TITLE_Y_OFFSET,
+        32,
+        32,
+    );
+    move_child(
+        hwnd,
+        ID_POINTER_ICON_DIM,
         pointer.left + SECTION_ICON_X_OFFSET,
         pointer.top + SECTION_TITLE_Y_OFFSET,
         32,
@@ -2641,6 +2713,14 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_REGION_ICON,
+        region.left + SECTION_ICON_X_OFFSET,
+        region.top + SECTION_TITLE_Y_OFFSET,
+        32,
+        32,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_ICON_DIM,
         region.left + SECTION_ICON_X_OFFSET,
         region.top + SECTION_TITLE_Y_OFFSET,
         32,
@@ -3103,6 +3183,9 @@ fn layout_region_area_controls_only(hwnd: HWND) {
 }
 
 fn content_control_wants_visible(hwnd: HWND, id: i32) -> bool {
+    if is_icon_dim_overlay(id) {
+        return false;
+    }
     if id == ID_REGION_LIST {
         return current_region_list_count(hwnd) > 0;
     }
@@ -3515,9 +3598,17 @@ fn paint_settings_window(hwnd: HWND) {
         let hdc = BeginPaint(hwnd, &mut ps);
         let _ = SetBkMode(hdc, TRANSPARENT);
         let layout = current_layout(hwnd);
+        let frame_color = content_frame_color_for_root(hwnd);
+        let disabled = modal_active_for_root(hwnd);
         fill_rect_color(hdc, &layout.content_panel, ui_color(UiColor::PanelBg));
-        sketch_round_rect(hdc, &layout.content_panel, UI_RADIUS, UI_STROKE_WIDTH);
-        draw_content_scrollbar(hdc, hwnd);
+        sketch_round_rect_with_color(
+            hdc,
+            &layout.content_panel,
+            UI_RADIUS,
+            UI_STROKE_WIDTH,
+            frame_color,
+        );
+        draw_content_scrollbar(hdc, hwnd, disabled);
         let list_frame = RECT {
             left: layout.sidebar_x,
             top: layout.sidebar_y,
@@ -3525,7 +3616,7 @@ fn paint_settings_window(hwnd: HWND) {
             bottom: layout.sidebar_y + layout.sidebar_h,
         };
         fill_rect_color(hdc, &list_frame, ui_color(UiColor::SidebarBg));
-        sketch_round_rect(hdc, &list_frame, UI_RADIUS, UI_STROKE_WIDTH);
+        sketch_round_rect_with_color(hdc, &list_frame, UI_RADIUS, UI_STROKE_WIDTH, frame_color);
         let _ = EndPaint(hwnd, &ps);
     }
 }
@@ -3543,13 +3634,9 @@ fn paint_content_viewport(hwnd: HWND) {
             let viewport_origin = viewport_origin_in_parent(parent, hwnd);
             let modal_cover = active_modal_cover_rect(parent)
                 .map(|rect| translate_rect(rect, -viewport_origin.x, -viewport_origin.y));
-            let dimmed = modal_cover.is_some();
-            let title_color = if dimmed {
-                ui_color(UiColor::TextWeak)
-            } else {
-                ui_color(UiColor::Text)
-            };
-            let separator_color = if dimmed {
+            let title_color = content_text_color_for_root(parent);
+            let content_disabled = modal_active_for_root(parent);
+            let separator_color = if content_disabled {
                 ui_color(UiColor::DisabledBg)
             } else {
                 ui_color(UiColor::Stroke)
@@ -3632,7 +3719,7 @@ fn paint_content_viewport(hwnd: HWND) {
                 .map(|cover| !rects_intersect(&region_area_box, cover))
                 .unwrap_or(true)
             {
-                draw_region_area_container(hdc, &region_area_box);
+                draw_region_area_container(hdc, &region_area_box, content_disabled);
             }
             for id in [
                 ID_SCALE_EDIT,
@@ -3652,7 +3739,7 @@ fn paint_content_viewport(hwnd: HWND) {
                     {
                         continue;
                     }
-                    draw_input_frame(hdc, &frame);
+                    draw_input_frame(hdc, &frame, content_disabled);
                 }
             }
             if let Some(mut cover) = modal_cover {
@@ -3671,9 +3758,10 @@ fn paint_content_viewport(hwnd: HWND) {
     }
 }
 
-fn draw_region_area_container(hdc: HDC, rect: &RECT) {
+fn draw_region_area_container(hdc: HDC, rect: &RECT, disabled: bool) {
     fill_rect_color(hdc, rect, ui_color(UiColor::ControlBg));
-    sketch_round_rect(hdc, rect, UI_RADIUS, UI_STROKE_WIDTH);
+    let frame_color = control_frame_color(disabled);
+    sketch_round_rect_with_color(hdc, rect, UI_RADIUS, UI_STROKE_WIDTH, frame_color);
     let divider_y = rect.bottom - REGION_AREA_BUTTON_ROW_HEIGHT;
     fill_rect_color(
         hdc,
@@ -3683,7 +3771,7 @@ fn draw_region_area_container(hdc: HDC, rect: &RECT) {
             right: rect.right - UI_STROKE_WIDTH,
             bottom: divider_y + UI_STROKE_WIDTH,
         },
-        ui_color(UiColor::Stroke),
+        frame_color,
     );
 }
 
@@ -3772,6 +3860,16 @@ fn draw_section_separator_clipped_uncovered(
 }
 
 fn active_modal_cover_rect(hwnd: HWND) -> Option<RECT> {
+    let settings_visible = SETTINGS_PANEL_PAINT_VISIBLE.load(Ordering::Relaxed);
+    let hotkey_visible = HOTKEY_PANEL_PAINT_VISIBLE.load(Ordering::Relaxed);
+    if settings_visible || hotkey_visible {
+        let layout = current_layout(hwnd);
+        return if settings_visible {
+            Some(inflate_rect(layout.settings_panel, 80, 12))
+        } else {
+            Some(inflate_rect(layout.hotkey_panel, 80, 12))
+        };
+    }
     let Ok(slot) = state_slot().try_lock() else {
         return None;
     };
@@ -3789,6 +3887,22 @@ fn active_modal_cover_rect(hwnd: HWND) -> Option<RECT> {
     } else {
         None
     }
+}
+
+fn modal_active_for_root(hwnd: HWND) -> bool {
+    if SETTINGS_PANEL_PAINT_VISIBLE.load(Ordering::Relaxed)
+        || HOTKEY_PANEL_PAINT_VISIBLE.load(Ordering::Relaxed)
+    {
+        return true;
+    }
+    let Ok(slot) = state_slot().try_lock() else {
+        return false;
+    };
+    let Some(state) = slot.as_ref() else {
+        return false;
+    };
+    state.hwnd == raw_from_hwnd(hwnd)
+        && (state.settings_panel_visible || state.hotkey_panel_visible)
 }
 
 fn rect_intersects_viewport(viewport: HWND, rect: &RECT) -> bool {
@@ -3824,9 +3938,9 @@ fn viewport_origin_in_parent(parent: HWND, viewport: HWND) -> POINT {
     point
 }
 
-fn sketch_round_rect(hdc: HDC, rect: &RECT, radius: i32, width: i32) {
+fn sketch_round_rect_with_color(hdc: HDC, rect: &RECT, radius: i32, width: i32, color: COLORREF) {
     unsafe {
-        let pen = CreatePen(PS_SOLID, width.max(1), ui_color(UiColor::Stroke));
+        let pen = CreatePen(PS_SOLID, width.max(1), color);
         let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
         let old_brush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
         if radius <= 0 {
@@ -3848,9 +3962,15 @@ fn sketch_round_rect(hdc: HDC, rect: &RECT, radius: i32, width: i32) {
     }
 }
 
-fn draw_input_frame(hdc: HDC, rect: &RECT) {
+fn draw_input_frame(hdc: HDC, rect: &RECT, disabled: bool) {
     fill_rect_color(hdc, rect, ui_color(UiColor::ControlBg));
-    sketch_round_rect(hdc, rect, INPUT_RADIUS, UI_STROKE_WIDTH);
+    sketch_round_rect_with_color(
+        hdc,
+        rect,
+        INPUT_RADIUS,
+        UI_STROKE_WIDTH,
+        control_frame_color(disabled),
+    );
 }
 
 fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
@@ -3887,6 +4007,13 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
     create_content_viewport(hwnd)?;
 
     create_bitmap_static(hwnd, ID_HOTKEY_ICON, 272, 63, &icon_dir.join("hotkey.bmp"))?;
+    create_icon_dim_overlay(
+        hwnd,
+        ID_HOTKEY_ICON_DIM,
+        272,
+        63,
+        &icon_dir.join("hotkey.bmp"),
+    )?;
     create_static(hwnd, "???", 376, 66, 70, 24, ID_HOTKEY_LABEL)?;
     create_static(hwnd, "Ctrl", 478, 66, 72, 24, ID_HOTKEY_MOD_PRIMARY)?;
     create_static(hwnd, "Alt", 603, 66, 72, 24, ID_HOTKEY_MOD_SECONDARY)?;
@@ -3932,6 +4059,13 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
     create_bitmap_static(
         hwnd,
         ID_SCALE_ICON,
+        272,
+        105,
+        &icon_dir.join("window-zoom.bmp"),
+    )?;
+    create_icon_dim_overlay(
+        hwnd,
+        ID_SCALE_ICON_DIM,
         272,
         105,
         &icon_dir.join("window-zoom.bmp"),
@@ -4245,9 +4379,23 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
     create_button(hwnd, "??", ID_REGION_DELETE_HOTKEY_CHANGE, 650, 516, 80, 30)?;
 
     create_icon_static(hwnd, ID_POINTER_ICON, 290, 530, &icon_dir.join("app.ico"))?;
+    create_icon_dim_overlay(
+        hwnd,
+        ID_POINTER_ICON_DIM,
+        290,
+        530,
+        &icon_dir.join("pointer-zoom.bmp"),
+    )?;
     create_bitmap_static(
         hwnd,
         ID_REGION_ICON,
+        290,
+        566,
+        &icon_dir.join("pointer-zoom.bmp"),
+    )?;
+    create_icon_dim_overlay(
+        hwnd,
+        ID_REGION_ICON_DIM,
         290,
         566,
         &icon_dir.join("pointer-zoom.bmp"),
@@ -4792,6 +4940,28 @@ fn create_button(
         h,
         id,
     )
+}
+
+fn create_icon_dim_overlay(
+    hwnd: HWND,
+    id: i32,
+    x: i32,
+    y: i32,
+    path: &Path,
+) -> Result<HWND, String> {
+    let overlay = create_child(
+        hwnd,
+        w!("BUTTON"),
+        "",
+        style(WS_CHILD, &[BS_OWNERDRAW_STYLE]),
+        x,
+        y,
+        ROW_ICON_SIZE,
+        ROW_ICON_SIZE,
+        id,
+    )?;
+    remember_button_icon_path(id, path);
+    Ok(overlay)
 }
 
 fn create_bitmap_button(
@@ -5704,7 +5874,13 @@ fn draw_owner_region_item(item: &OwnerDrawItem) {
         fill_rect_color(item.hdc, &rect, ui_color(UiColor::DisabledBg));
     } else if selected {
         fill_rect_color(item.hdc, &rect, ui_color(UiColor::Selected));
-        sketch_round_rect(item.hdc, &rect, UI_RADIUS, UI_STROKE_WIDTH);
+        sketch_round_rect_with_color(
+            item.hdc,
+            &rect,
+            UI_RADIUS,
+            UI_STROKE_WIDTH,
+            control_frame_color(disabled),
+        );
     }
     let hovered = hovered_region_index_for_region_list(item.hwnd_item)
         .map(|index| index == item.item_id as usize)
@@ -5761,7 +5937,7 @@ fn draw_region_list_scrollbar_for_item(item: &OwnerDrawItem) {
         bottom: thumb.bottom.min(item.rc_item.bottom) - 1,
     };
     if thumb.bottom > thumb.top {
-        draw_pixel_scroll_thumb(item.hdc, &thumb);
+        draw_pixel_scroll_thumb(item.hdc, &thumb, control_dimmed_by_modal(item.hwnd_item));
     }
 }
 
@@ -6035,7 +6211,13 @@ fn draw_owner_profile_item(item: &OwnerDrawItem) {
         },
     );
     if selected {
-        sketch_round_rect(item.hdc, &rect, UI_RADIUS, UI_STROKE_WIDTH);
+        sketch_round_rect_with_color(
+            item.hdc,
+            &rect,
+            UI_RADIUS,
+            UI_STROKE_WIDTH,
+            control_frame_color(disabled),
+        );
     }
     let hovered = hovered_profile_index_for_profile_list(item.hwnd_item)
         .map(|index| index == item.item_id as usize)
@@ -6084,6 +6266,10 @@ fn rename_edit_visible_for_profile_list(list_hwnd: HWND) -> bool {
 
 fn draw_owner_button(item: &OwnerDrawItem) {
     let id = item.ctl_id as i32;
+    if is_icon_dim_overlay(id) {
+        draw_icon_dim_overlay(item);
+        return;
+    }
     let disabled =
         (item.item_state & ODS_DISABLED_FLAG) != 0 || control_dimmed_by_modal(item.hwnd_item);
     if id == ID_SETTINGS_PANEL_BG || id == ID_HOTKEY_PANEL_BG {
@@ -6139,7 +6325,13 @@ fn draw_owner_button(item: &OwnerDrawItem) {
             ui_color(UiColor::ControlBg)
         },
     );
-    sketch_round_rect(item.hdc, &rect, UI_RADIUS, UI_STROKE_WIDTH);
+    sketch_round_rect_with_color(
+        item.hdc,
+        &rect,
+        UI_RADIUS,
+        UI_STROKE_WIDTH,
+        control_frame_color(disabled),
+    );
     if id == ID_LANGUAGE_COMBO {
         draw_owner_combo(item.hdc, &rect, &get_text(item.hwnd_item), disabled);
         return;
@@ -6161,6 +6353,26 @@ fn draw_owner_button(item: &OwnerDrawItem) {
             ui_color(UiColor::Text)
         },
     );
+}
+
+fn is_icon_dim_overlay(id: i32) -> bool {
+    matches!(
+        id,
+        ID_HOTKEY_ICON_DIM | ID_SCALE_ICON_DIM | ID_POINTER_ICON_DIM | ID_REGION_ICON_DIM
+    )
+}
+
+fn draw_icon_dim_overlay(item: &OwnerDrawItem) {
+    fill_rect_color(item.hdc, &item.rc_item, ui_color(UiColor::ControlBg));
+    if let Some(path) = button_icon_path(item.ctl_id as i32) {
+        let _ = draw_recolored_bitmap_icon_from_file(
+            item.hdc,
+            &item.rc_item,
+            &path,
+            ROW_ICON_SIZE,
+            ui_color(UiColor::TextWeak),
+        );
+    }
 }
 
 fn draw_panel_background_item(item: &OwnerDrawItem) {
@@ -6235,7 +6447,7 @@ fn draw_region_target_mode_button(item: &OwnerDrawItem, disabled: bool) {
             ui_color(UiColor::ControlBg)
         },
     );
-    draw_segmented_mode_button_border(item.hdc, &rect, id);
+    draw_segmented_mode_button_border(item.hdc, &rect, id, disabled);
     let lang = settings_root_for_descendant(item.hwnd_item)
         .map(current_ui_language)
         .unwrap_or_else(|| "ko".to_string());
@@ -6261,8 +6473,8 @@ fn draw_region_target_mode_button(item: &OwnerDrawItem, disabled: bool) {
     );
 }
 
-fn draw_segmented_mode_button_border(hdc: HDC, rect: &RECT, id: i32) {
-    let color = ui_color(UiColor::Stroke);
+fn draw_segmented_mode_button_border(hdc: HDC, rect: &RECT, id: i32, disabled: bool) {
+    let color = control_frame_color(disabled);
     let width = UI_STROKE_WIDTH.max(1);
     let segment_w = (rect.right - rect.left).max(1);
     let mut combined = *rect;
@@ -6275,7 +6487,7 @@ fn draw_segmented_mode_button_border(hdc: HDC, rect: &RECT, id: i32) {
     // Reuse the same RoundRect path as normal owner-draw buttons.  Drawing a
     // virtual combined border from each half gives one shared rounded outline
     // instead of two separately-rounded buttons.
-    sketch_round_rect(hdc, &combined, UI_RADIUS, width);
+    sketch_round_rect_with_color(hdc, &combined, UI_RADIUS, width, color);
 
     if id == ID_REGION_TARGET_ALL_BUTTON {
         fill_rect_color(
@@ -6322,11 +6534,7 @@ fn draw_profile_action_icon(hdc: HDC, rect: &RECT, id: i32, disabled: bool) -> b
     if id != ID_ADD_PROFILE && id != ID_DELETE_PROFILE {
         return false;
     }
-    let color = if disabled {
-        ui_color(UiColor::TextWeak)
-    } else {
-        ui_color(UiColor::Stroke)
-    };
+    let color = control_frame_color(disabled);
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
     let cx = rect.left + width / 2;
@@ -6359,11 +6567,7 @@ fn draw_scale_spinner_half(hdc: HDC, rect: &RECT, id: i32, disabled: bool) {
         ui_color(UiColor::ControlBg)
     };
     fill_rect_color(hdc, rect, bg);
-    let line = if disabled {
-        ui_color(UiColor::TextWeak)
-    } else {
-        ui_color(UiColor::Stroke)
-    };
+    let line = control_frame_color(disabled);
     let up = id == ID_SCALE_UP || id == ID_POINTER_SCALE_UP || id == ID_REGION_SCALE_UP;
     let w = rect.right - rect.left;
     let h = rect.bottom - rect.top;
@@ -6469,11 +6673,7 @@ fn draw_scale_spinner_half(hdc: HDC, rect: &RECT, id: i32, disabled: bool) {
         );
     }
 
-    let color = if disabled {
-        ui_color(UiColor::TextWeak)
-    } else {
-        ui_color(UiColor::Stroke)
-    };
+    let color = control_frame_color(disabled);
     let cx = rect.left + w / 2;
     let arrow_top = rect.top + ((h - 5) / 2).max(2);
     for row in 0..4 {
@@ -6503,14 +6703,10 @@ fn draw_owner_combo(hdc: HDC, rect: &RECT, label: &str, disabled: bool) {
         right: arrow_left + UI_STROKE_WIDTH,
         bottom: rect.bottom - 3,
     };
-    fill_rect_color(hdc, &divider, ui_color(UiColor::Stroke));
+    fill_rect_color(hdc, &divider, control_frame_color(disabled));
     let cx = arrow_left + 17;
     let cy = rect.top + ((rect.bottom - rect.top) / 2) - 2;
-    let color = if disabled {
-        ui_color(UiColor::TextWeak)
-    } else {
-        ui_color(UiColor::Stroke)
-    };
+    let color = control_frame_color(disabled);
     for row in 0..5 {
         let half = 4 - row;
         let block = RECT {
@@ -6540,7 +6736,12 @@ fn draw_toolbar_icon(hdc: HDC, rect: &RECT, id: i32, disabled: bool) -> bool {
         return false;
     }
     if let Some(path) = button_icon_path(id) {
-        if draw_bitmap_icon_from_file(hdc, rect, &path, 24).is_ok() {
+        let result = if disabled {
+            draw_recolored_bitmap_icon_from_file(hdc, rect, &path, 24, ui_color(UiColor::TextWeak))
+        } else {
+            draw_bitmap_icon_from_file(hdc, rect, &path, 24)
+        };
+        if result.is_ok() {
             return true;
         }
     }
@@ -6591,6 +6792,109 @@ fn draw_bitmap_icon_from_file(
         let _ = DeleteObject(HGDIOBJ(bitmap.0));
     }
     Ok(())
+}
+
+fn draw_recolored_bitmap_icon_from_file(
+    hdc: HDC,
+    rect: &RECT,
+    path: &Path,
+    target_size: i32,
+    color: COLORREF,
+) -> Result<(), String> {
+    let bitmap = load_bitmap_dark_pixel_mask(path)?;
+    let icon_size = target_size
+        .min(rect.right - rect.left)
+        .min(rect.bottom - rect.top)
+        .max(1);
+    let left = rect.left + ((rect.right - rect.left - icon_size) / 2);
+    let top = rect.top + ((rect.bottom - rect.top - icon_size) / 2);
+    for y in 0..bitmap.height {
+        for x in 0..bitmap.width {
+            if !bitmap.dark_pixels[(y * bitmap.width + x) as usize] {
+                continue;
+            }
+            let dst = RECT {
+                left: left + (x * icon_size / bitmap.width),
+                top: top + (y * icon_size / bitmap.height),
+                right: left
+                    + ((x + 1) * icon_size / bitmap.width).max(x * icon_size / bitmap.width + 1),
+                bottom: top
+                    + ((y + 1) * icon_size / bitmap.height).max(y * icon_size / bitmap.height + 1),
+            };
+            fill_rect_color(hdc, &dst, color);
+        }
+    }
+    Ok(())
+}
+
+struct BitmapDarkMask {
+    width: i32,
+    height: i32,
+    dark_pixels: Vec<bool>,
+}
+
+fn load_bitmap_dark_pixel_mask(path: &Path) -> Result<BitmapDarkMask, String> {
+    let bytes = fs::read(path).map_err(|error| format!("read bitmap failed: {error:?}"))?;
+    if bytes.len() < 54 || &bytes[0..2] != b"BM" {
+        return Err("unsupported bitmap header".to_string());
+    }
+    let pixel_offset = read_le_u32(&bytes, 10)? as usize;
+    let width = read_le_i32(&bytes, 18)?;
+    let height = read_le_i32(&bytes, 22)?;
+    let planes = read_le_u16(&bytes, 26)?;
+    let bits_per_pixel = read_le_u16(&bytes, 28)?;
+    let compression = read_le_u32(&bytes, 30)?;
+    if width <= 0 || height == 0 || planes != 1 || compression != 0 {
+        return Err("unsupported bitmap format".to_string());
+    }
+    if bits_per_pixel != 24 && bits_per_pixel != 32 {
+        return Err("unsupported bitmap bit depth".to_string());
+    }
+    let height_abs = height.abs();
+    let bytes_per_pixel = (bits_per_pixel / 8) as usize;
+    let row_stride = (((width as usize * bits_per_pixel as usize) + 31) / 32) * 4;
+    let required = pixel_offset + row_stride * height_abs as usize;
+    if bytes.len() < required {
+        return Err("truncated bitmap data".to_string());
+    }
+    let mut dark_pixels = vec![false; (width * height_abs) as usize];
+    for y in 0..height_abs {
+        let source_y = if height > 0 { height_abs - 1 - y } else { y };
+        let row_start = pixel_offset + source_y as usize * row_stride;
+        for x in 0..width {
+            let pixel = row_start + x as usize * bytes_per_pixel;
+            let blue = bytes[pixel] as u16;
+            let green = bytes[pixel + 1] as u16;
+            let red = bytes[pixel + 2] as u16;
+            dark_pixels[(y * width + x) as usize] = red + green + blue < 384;
+        }
+    }
+    Ok(BitmapDarkMask {
+        width,
+        height: height_abs,
+        dark_pixels,
+    })
+}
+
+fn read_le_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
+    let slice = bytes
+        .get(offset..offset + 2)
+        .ok_or_else(|| "bitmap header too short".to_string())?;
+    Ok(u16::from_le_bytes([slice[0], slice[1]]))
+}
+
+fn read_le_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let slice = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| "bitmap header too short".to_string())?;
+    Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+fn read_le_i32(bytes: &[u8], offset: usize) -> Result<i32, String> {
+    let slice = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| "bitmap header too short".to_string())?;
+    Ok(i32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
 fn draw_pixel_pattern(hdc: HDC, rect: &RECT, pattern: &[&str; 24], disabled: bool) {
@@ -7885,7 +8189,7 @@ fn show_settings_panel(state: &mut SettingsUiState, visible: bool) {
     update_modal_base_enabled(state);
     layout_profile_buttons_for_state(state);
     refresh_localized_texts(state);
-    invalidate(hwnd);
+    invalidate_modal_surfaces(hwnd);
 }
 
 fn toggle_settings_panel(state: &mut SettingsUiState) {
@@ -7990,7 +8294,7 @@ fn show_hotkey_panel(state: &mut SettingsUiState, visible: bool) {
     layout_profile_buttons_for_state(state);
     refresh_localized_texts(state);
     refresh_hotkey_panel_texts(state);
-    invalidate(hwnd);
+    invalidate_modal_surfaces(hwnd);
     if visible {
         unsafe {
             let _ = SetForegroundWindow(hwnd);
@@ -9290,12 +9594,14 @@ fn control_ids() -> &'static [i32] {
         ID_SETTINGS_BUTTON,
         ID_TRAY_BUTTON,
         ID_HOTKEY_ICON,
+        ID_HOTKEY_ICON_DIM,
         ID_HOTKEY_LABEL,
         ID_HOTKEY_MOD_PRIMARY,
         ID_HOTKEY_MOD_SECONDARY,
         ID_HOTKEY_KEY,
         ID_HOTKEY_CHANGE,
         ID_SCALE_ICON,
+        ID_SCALE_ICON_DIM,
         ID_SCALE_LABEL,
         ID_SCALE_EDIT,
         ID_SCALE_PERCENT,
@@ -9388,7 +9694,9 @@ fn control_ids() -> &'static [i32] {
         ID_REGION_LIST,
         ID_REGION_EMPTY_LABEL,
         ID_POINTER_ICON,
+        ID_POINTER_ICON_DIM,
         ID_REGION_ICON,
+        ID_REGION_ICON_DIM,
         ID_HOTKEY_SCALE_GROUP_LABEL,
         ID_HOTKEY_SCREENSHOT_GROUP_LABEL,
         ID_HOTKEY_POINTER_OPTION_GROUP_LABEL,
@@ -9416,6 +9724,7 @@ fn control_ids() -> &'static [i32] {
 fn scrollable_content_control_ids() -> &'static [i32] {
     &[
         ID_HOTKEY_ICON,
+        ID_HOTKEY_ICON_DIM,
         ID_HOTKEY_LABEL,
         ID_HOTKEY_MOD_PRIMARY,
         ID_HOTKEY_MOD_SECONDARY,
@@ -9456,6 +9765,7 @@ fn scrollable_content_control_ids() -> &'static [i32] {
         ID_REGION_DELETE_HOTKEY_VALUE,
         ID_REGION_DELETE_HOTKEY_CHANGE,
         ID_SCALE_ICON,
+        ID_SCALE_ICON_DIM,
         ID_SCALE_LABEL,
         ID_SCALE_EDIT,
         ID_SCALE_PERCENT,
@@ -9477,6 +9787,8 @@ fn scrollable_content_control_ids() -> &'static [i32] {
         ID_POINTER_CURSOR_TOGGLE_LABEL,
         ID_POINTER_CURSOR_TOGGLE,
         ID_REGION_ICON,
+        ID_POINTER_ICON_DIM,
+        ID_REGION_ICON_DIM,
         ID_REGION_SCALE_LABEL,
         ID_REGION_SCALE_EDIT,
         ID_REGION_PERCENT,
@@ -9737,6 +10049,26 @@ fn update_modal_base_enabled(state: &SettingsUiState) {
         set_child_enabled(hwnd, *id, !modal_active);
         invalidate(get(hwnd, *id));
     }
+    for (icon_id, overlay_id) in modal_dim_icon_pairs() {
+        let covered_by_modal = cover_rect
+            .as_ref()
+            .and_then(|modal| {
+                child_frame_rect(hwnd, *icon_id, 0, 0).map(|child| rects_intersect(&child, modal))
+            })
+            .unwrap_or(false);
+        let overlay_visible =
+            modal_active && !covered_by_modal && content_control_wants_visible(hwnd, *icon_id);
+        let original_visible =
+            !overlay_visible && !covered_by_modal && content_control_wants_visible(hwnd, *icon_id);
+        show_child(hwnd, *icon_id, original_visible);
+        set_child_enabled(hwnd, *icon_id, !modal_active && !covered_by_modal);
+        show_child(hwnd, *overlay_id, overlay_visible);
+        set_child_enabled(hwnd, *overlay_id, false);
+        if overlay_visible {
+            raise_child(hwnd, *overlay_id);
+            invalidate(get(hwnd, *overlay_id));
+        }
+    }
     for id in base_interaction_ids() {
         let enabled = !modal_active && (*id != ID_DELETE_PROFILE || state.selected_index > 0);
         if *id == ID_DELETE_PROFILE {
@@ -9756,6 +10088,15 @@ fn modal_dim_only_control_ids() -> &'static [i32] {
         ID_ADD_PROFILE,
         ID_SETTINGS_BUTTON,
         ID_TRAY_BUTTON,
+    ]
+}
+
+fn modal_dim_icon_pairs() -> &'static [(i32, i32)] {
+    &[
+        (ID_HOTKEY_ICON, ID_HOTKEY_ICON_DIM),
+        (ID_SCALE_ICON, ID_SCALE_ICON_DIM),
+        (ID_POINTER_ICON, ID_POINTER_ICON_DIM),
+        (ID_REGION_ICON, ID_REGION_ICON_DIM),
     ]
 }
 
@@ -9824,6 +10165,26 @@ fn hide_to_tray(hwnd: HWND) {
 fn invalidate(hwnd: HWND) {
     unsafe {
         let _ = InvalidateRect(Some(hwnd), None, false);
+    }
+}
+
+fn invalidate_modal_surfaces(hwnd: HWND) {
+    let viewport = get(hwnd, ID_CONTENT_VIEWPORT);
+    unsafe {
+        let _ = RedrawWindow(
+            Some(hwnd),
+            None,
+            None,
+            RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+        );
+        if !viewport.0.is_null() {
+            let _ = RedrawWindow(
+                Some(viewport),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            );
+        }
     }
 }
 
