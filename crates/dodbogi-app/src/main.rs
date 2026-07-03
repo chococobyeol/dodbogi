@@ -1829,7 +1829,7 @@ fn handle_runtime_message(
         } => {
             if matches!(kind, InputEventKind::MouseButtonUp(MouseButton::Left))
                 && (settings_ui::activate_owner_button_fallback(hwnd)
-                    || settings_ui::activate_owner_button_at_screen_point(screen_x, screen_y))
+                    || settings_ui::activate_owner_button_at_screen_point(hwnd, screen_x, screen_y))
             {
                 append_log_line(
                     &paths.log_file,

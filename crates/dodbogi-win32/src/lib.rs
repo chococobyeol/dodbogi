@@ -691,27 +691,26 @@ mod imp {
                 },
                 WindowsAndMessaging::{
                     AppendMenuW, ClipCursor, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-                    DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, EnumChildWindows,
-                    EnumWindows, GetClassNameW, GetClientRect, GetClipCursor, GetCursorInfo,
-                    GetCursorPos, GetDlgCtrlID, GetForegroundWindow, GetGUIThreadInfo, GetIconInfo,
-                    GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
-                    GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, KillTimer,
-                    LoadCursorW, LoadIconW, LoadImageW, MessageBoxW, PeekMessageW, PostMessageW,
-                    RegisterClassW, SendMessageW, SetCursorPos, SetForegroundWindow,
-                    SetLayeredWindowAttributes, SetTimer, SetWindowLongPtrW, SetWindowPos,
-                    ShowCursor, SystemParametersInfoW, TranslateMessage, WindowFromPoint,
-                    CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CURSORINFO, DI_NORMAL, GUITHREADINFO,
-                    GUI_INMOVESIZE, GWLP_HWNDPARENT, GWL_EXSTYLE, HICON, HTCAPTION, HTCLIENT,
-                    HTTRANSPARENT, HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW,
-                    IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY, MB_OK,
-                    MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED, PM_REMOVE,
-                    SET_WINDOW_POS_FLAGS, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-                    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETMOUSE, SPI_GETMOUSESPEED,
-                    SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_FRAMECHANGED, SWP_HIDEWINDOW,
-                    SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSENDCHANGING, SWP_NOSIZE,
-                    SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP,
-                    WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN,
-                    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
+                    DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, EnumWindows,
+                    GetClassNameW, GetClientRect, GetClipCursor, GetCursorInfo, GetCursorPos,
+                    GetForegroundWindow, GetGUIThreadInfo, GetIconInfo, GetSystemMetrics,
+                    GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+                    GetWindowThreadProcessId, IsWindow, IsWindowVisible, KillTimer, LoadCursorW,
+                    LoadIconW, LoadImageW, MessageBoxW, PeekMessageW, PostMessageW, RegisterClassW,
+                    SetCursorPos, SetForegroundWindow, SetLayeredWindowAttributes, SetTimer,
+                    SetWindowLongPtrW, SetWindowPos, ShowCursor, SystemParametersInfoW,
+                    TranslateMessage, WindowFromPoint, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW,
+                    CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE, GWLP_HWNDPARENT,
+                    GWL_EXSTYLE, HICON, HTCAPTION, HTCLIENT, HTTRANSPARENT, HWND_NOTOPMOST,
+                    HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON,
+                    LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY, MB_OK, MF_CHECKED, MF_GRAYED,
+                    MF_STRING, MF_UNCHECKED, PM_REMOVE, SET_WINDOW_POS_FLAGS, SM_CXVIRTUALSCREEN,
+                    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETMOUSE,
+                    SPI_GETMOUSESPEED, SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_FRAMECHANGED,
+                    SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSENDCHANGING,
+                    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+                    WM_APP, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_ERASEBKGND, WM_HOTKEY,
+                    WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
                     WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
                     WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP,
                     WM_SETCURSOR, WM_TIMER, WM_USER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
@@ -723,10 +722,6 @@ mod imp {
 
     const WDA_MONITOR: u32 = 0x00000001;
     const WDA_EXCLUDEFROMCAPTURE: u32 = 0x00000011;
-    const BM_CLICK_MSG: u32 = 0x00F5;
-    const SETTINGS_OWNER_BUTTON_IDS: [i32; 11] = [
-        1055, 1057, 1083, 1130, 1134, 1135, 1136, 1142, 1143, 1153, 1155,
-    ];
 
     #[link(name = "user32")]
     unsafe extern "system" {
@@ -2787,9 +2782,7 @@ mod imp {
                     WM_NCHITTEST => {
                         let screen_x = loword_i32(lparam);
                         let screen_y = hiword_i32(lparam);
-                        if region_magnifier_mouse_passthrough_enabled(hwnd)
-                            || screen_point_over_dodbogi_settings_window(screen_x, screen_y)
-                        {
+                        if region_magnifier_mouse_passthrough_enabled(hwnd) {
                             return LRESULT(HTTRANSPARENT as isize);
                         }
                         if region_magnifier_screen_point_in_resize_grip(hwnd, screen_x, screen_y) {
@@ -2800,13 +2793,6 @@ mod imp {
                     WM_LBUTTONDOWN => {
                         if region_magnifier_mouse_passthrough_enabled(hwnd) {
                             return LRESULT(0);
-                        }
-                        if let Some((screen_x, screen_y)) =
-                            region_magnifier_client_lparam_to_screen(hwnd, lparam)
-                        {
-                            if screen_point_over_dodbogi_settings_window(screen_x, screen_y) {
-                                return LRESULT(0);
-                            }
                         }
                         let x = loword_i32(lparam);
                         let y = hiword_i32(lparam);
@@ -2826,13 +2812,6 @@ mod imp {
                     WM_LBUTTONUP => {
                         if region_magnifier_mouse_passthrough_enabled(hwnd) {
                             return LRESULT(0);
-                        }
-                        if let Some((screen_x, screen_y)) =
-                            region_magnifier_client_lparam_to_screen(hwnd, lparam)
-                        {
-                            if click_dodbogi_settings_button_at_point(screen_x, screen_y) {
-                                return LRESULT(0);
-                            }
                         }
                         if end_region_magnifier_resize(hwnd) {
                             let _ = unsafe { ReleaseCapture() };
@@ -3191,120 +3170,6 @@ mod imp {
         lookup_region_magnifier_paint_state(hwnd)
             .map(|geometry| geometry.mouse_passthrough)
             .unwrap_or(false)
-    }
-
-    fn region_magnifier_client_lparam_to_screen(hwnd: HWND, lparam: LPARAM) -> Option<(i32, i32)> {
-        let mut point = POINT {
-            x: loword_i32(lparam),
-            y: hiword_i32(lparam),
-        };
-        if unsafe { ClientToScreen(hwnd, &mut point).as_bool() } {
-            Some((point.x, point.y))
-        } else {
-            None
-        }
-    }
-
-    struct SettingsWindowHitTest {
-        x: i32,
-        y: i32,
-        found: bool,
-    }
-
-    fn screen_point_over_dodbogi_settings_window(x: i32, y: i32) -> bool {
-        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-            let state = &mut *(lparam.0 as *mut SettingsWindowHitTest);
-            if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
-                return TRUE;
-            }
-            let mut class_name = [0u16; 64];
-            let len = unsafe { GetClassNameW(hwnd, &mut class_name) };
-            if len <= 0 {
-                return TRUE;
-            }
-            let class_name = String::from_utf16_lossy(&class_name[..len as usize]);
-            if class_name != "DodbogiSettingsWindow" {
-                return TRUE;
-            }
-            let mut rect = RECT::default();
-            if unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok()
-                && state.x >= rect.left
-                && state.x < rect.right
-                && state.y >= rect.top
-                && state.y < rect.bottom
-            {
-                state.found = true;
-                return BOOL(0);
-            }
-            TRUE
-        }
-
-        let mut state = SettingsWindowHitTest { x, y, found: false };
-        let _ = unsafe { EnumWindows(Some(enum_proc), LPARAM((&mut state) as *mut _ as isize)) };
-        state.found
-    }
-
-    struct SettingsButtonHitTest {
-        x: i32,
-        y: i32,
-        hwnd: HWND,
-    }
-
-    fn click_dodbogi_settings_button_at_point(x: i32, y: i32) -> bool {
-        unsafe extern "system" fn enum_settings(hwnd: HWND, lparam: LPARAM) -> BOOL {
-            let state = &mut *(lparam.0 as *mut SettingsButtonHitTest);
-            if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
-                return TRUE;
-            }
-            if window_class_name(hwnd).as_deref() != Some("DodbogiSettingsWindow") {
-                return TRUE;
-            }
-            let mut rect = RECT::default();
-            if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err()
-                || state.x < rect.left
-                || state.x >= rect.right
-                || state.y < rect.top
-                || state.y >= rect.bottom
-            {
-                return TRUE;
-            }
-            unsafe extern "system" fn enum_child(child: HWND, lparam: LPARAM) -> BOOL {
-                let state = &mut *(lparam.0 as *mut SettingsButtonHitTest);
-                if !unsafe { IsWindowVisible(child) }.as_bool() {
-                    return TRUE;
-                }
-                let id = unsafe { GetDlgCtrlID(child) };
-                if !SETTINGS_OWNER_BUTTON_IDS.contains(&id) {
-                    return TRUE;
-                }
-                let mut rect = RECT::default();
-                if unsafe { GetWindowRect(child, &mut rect) }.is_ok()
-                    && state.x >= rect.left
-                    && state.x < rect.right
-                    && state.y >= rect.top
-                    && state.y < rect.bottom
-                {
-                    state.hwnd = child;
-                    return BOOL(0);
-                }
-                TRUE
-            }
-            let _ = unsafe { EnumChildWindows(Some(hwnd), Some(enum_child), lparam) };
-            BOOL(0)
-        }
-
-        let mut state = SettingsButtonHitTest {
-            x,
-            y,
-            hwnd: HWND(std::ptr::null_mut()),
-        };
-        let _ =
-            unsafe { EnumWindows(Some(enum_settings), LPARAM((&mut state) as *mut _ as isize)) };
-        if is_null_hwnd(state.hwnd) {
-            return false;
-        }
-        let _ = unsafe { SendMessageW(state.hwnd, BM_CLICK_MSG, Some(WPARAM(0)), Some(LPARAM(0))) };
-        true
     }
 
     fn region_magnifier_screen_point_in_resize_grip(

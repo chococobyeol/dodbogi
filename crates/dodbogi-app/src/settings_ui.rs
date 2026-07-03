@@ -40,25 +40,25 @@ use windows::{
             },
             WindowsAndMessaging::{
                 CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, EnumChildWindows,
-                GetClientRect, GetCursorPos, GetDlgCtrlID, GetDlgItem, GetForegroundWindow,
-                GetParent, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-                IsWindow, IsWindowVisible, KillTimer, LoadCursorW, LoadImageW, MessageBoxW,
-                PostMessageW, RegisterClassW, SendMessageW, SetForegroundWindow, SetParent,
-                SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, BN_CLICKED,
-                CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, EN_CHANGE, EN_KILLFOCUS,
-                ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, ES_READONLY, GWLP_WNDPROC, HMENU,
-                HWND_TOP, IDC_ARROW, IDYES, IMAGE_BITMAP, IMAGE_ICON, LBN_DBLCLK, LBN_SELCHANGE,
-                LBS_NOTIFY, LB_ADDSTRING, LB_GETCURSEL, LB_RESETCONTENT, LB_SETCURSEL,
-                LR_LOADFROMFILE, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_YESNO, MINMAXINFO,
-                SET_WINDOW_POS_FLAGS, STM_SETIMAGE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-                SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE,
-                WINDOW_LONG_PTR_INDEX, WINDOW_STYLE, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND,
-                WM_CREATE, WM_CTLCOLORSTATIC, WM_DESTROY, WM_ERASEBKGND, WM_GETMINMAXINFO,
-                WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-                WM_MOUSEWHEEL, WM_NCCREATE, WM_NCLBUTTONDOWN, WM_PAINT, WM_PARENTNOTIFY,
-                WM_SETFONT, WM_SETICON, WM_SIZE, WM_SYSKEYDOWN, WM_TIMER, WM_VSCROLL, WNDCLASSW,
-                WNDPROC, WS_BORDER, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
-                WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+                GetClassNameW, GetClientRect, GetCursorPos, GetDlgCtrlID, GetDlgItem,
+                GetForegroundWindow, GetParent, GetWindowLongPtrW, GetWindowRect,
+                GetWindowTextLengthW, GetWindowTextW, IsWindow, IsWindowVisible, KillTimer,
+                LoadCursorW, LoadImageW, MessageBoxW, PostMessageW, RegisterClassW, SendMessageW,
+                SetForegroundWindow, SetParent, SetTimer, SetWindowLongPtrW, SetWindowPos,
+                SetWindowTextW, ShowWindow, BN_CLICKED, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW,
+                CW_USEDEFAULT, EN_CHANGE, EN_KILLFOCUS, ES_AUTOHSCROLL, ES_AUTOVSCROLL,
+                ES_MULTILINE, ES_READONLY, GWLP_WNDPROC, HMENU, HWND_TOP, IDC_ARROW, IDYES,
+                IMAGE_BITMAP, IMAGE_ICON, LBN_DBLCLK, LBN_SELCHANGE, LBS_NOTIFY, LB_ADDSTRING,
+                LB_GETCURSEL, LB_RESETCONTENT, LB_SETCURSEL, LR_LOADFROMFILE, MB_ICONERROR,
+                MB_ICONQUESTION, MB_OK, MB_YESNO, MINMAXINFO, SET_WINDOW_POS_FLAGS, STM_SETIMAGE,
+                SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE,
+                SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_LONG_PTR_INDEX, WINDOW_STYLE,
+                WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORSTATIC, WM_DESTROY,
+                WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
+                WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCLBUTTONDOWN, WM_PAINT,
+                WM_PARENTNOTIFY, WM_SETFONT, WM_SETICON, WM_SIZE, WM_SYSKEYDOWN, WM_TIMER,
+                WM_VSCROLL, WNDCLASSW, WNDPROC, WS_BORDER, WS_CHILD, WS_CLIPCHILDREN,
+                WS_CLIPSIBLINGS, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
             },
         },
     },
@@ -654,7 +654,16 @@ pub fn activate_owner_button_fallback(hwnd_raw: isize) -> bool {
     true
 }
 
-pub fn activate_owner_button_at_screen_point(screen_x: i32, screen_y: i32) -> bool {
+pub fn activate_owner_button_at_screen_point(
+    source_hwnd_raw: isize,
+    screen_x: i32,
+    screen_y: i32,
+) -> bool {
+    if window_class_name(hwnd_from_raw(source_hwnd_raw)).as_deref()
+        == Some("DodbogiRegionMagnifierHost")
+    {
+        return false;
+    }
     let settings_hwnd = state_slot()
         .lock()
         .ok()
@@ -710,6 +719,18 @@ pub fn activate_owner_button_at_screen_point(screen_x: i32, screen_y: i32) -> bo
         return false;
     }
     activate_owner_button_fallback(raw_from_hwnd(hit.hwnd))
+}
+
+fn window_class_name(hwnd: HWND) -> Option<String> {
+    if hwnd.0.is_null() {
+        return None;
+    }
+    let mut class_name = [0u16; 128];
+    let len = unsafe { GetClassNameW(hwnd, &mut class_name) };
+    if len <= 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&class_name[..len as usize]))
 }
 
 pub fn refresh_from_settings_file(paths: &RuntimePaths) -> Result<bool, String> {
