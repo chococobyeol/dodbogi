@@ -196,6 +196,105 @@ pub struct SourceWindow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionMagnifierTargetMode {
+    AllScreens,
+    SelectedApp,
+}
+
+impl RegionMagnifierTargetMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AllScreens => "all_screens",
+            Self::SelectedApp => "selected_app",
+        }
+    }
+
+    pub fn from_setting(value: &str) -> Option<Self> {
+        match value {
+            "all_screens" | "all" => Some(Self::AllScreens),
+            "selected_app" | "app" => Some(Self::SelectedApp),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionMagnifierArea {
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub scale_percent: u32,
+    pub output_position_set: bool,
+    pub output_x: i32,
+    pub output_y: i32,
+}
+
+impl RegionMagnifierArea {
+    pub fn new(
+        id: impl Into<String>,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        scale_percent: u32,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            x,
+            y,
+            width,
+            height,
+            scale_percent,
+            output_position_set: false,
+            output_x: 0,
+            output_y: 0,
+        }
+        .sanitized()
+    }
+
+    pub fn sanitized(mut self) -> Self {
+        self.id = sanitize_region_area_id(&self.id);
+        self.x = self.x.clamp(-100_000, 100_000);
+        self.y = self.y.clamp(-100_000, 100_000);
+        self.width = self.width.min(5000);
+        self.height = self.height.min(5000);
+        self.scale_percent = self.scale_percent.clamp(50, 1000);
+        self.output_x = self.output_x.clamp(-100_000, 100_000);
+        self.output_y = self.output_y.clamp(-100_000, 100_000);
+        self
+    }
+
+    pub fn source_rect(&self) -> Option<PhysicalRect> {
+        if self.width == 0 || self.height == 0 {
+            return None;
+        }
+        let width = self.width.min(i32::MAX as u32) as i32;
+        let height = self.height.min(i32::MAX as u32) as i32;
+        Some(PhysicalRect {
+            left: self.x,
+            top: self.y,
+            right: self.x.saturating_add(width),
+            bottom: self.y.saturating_add(height),
+        })
+    }
+}
+
+fn sanitize_region_area_id(raw: &str) -> String {
+    let id = raw
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+        .take(48)
+        .collect::<String>();
+    if id.is_empty() {
+        "region".to_string()
+    } else {
+        id
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScalingMode {
     Windowed,
     Fullscreen,
@@ -393,7 +492,9 @@ impl ProfileMatchContext {
 pub struct AppProfile {
     pub id: String,
     pub display_name: String,
+    /// Legacy alias kept for older settings files; mirrors hotkeys.windowed_toggle.
     pub windowed_hotkey: String,
+    pub hotkeys: HotkeySettings,
     pub match_rule: ProfileMatchRule,
     pub scaling_mode: ScalingMode,
     pub capture_method: CaptureMethod,
@@ -402,6 +503,16 @@ pub struct AppProfile {
     pub pointer_magnifier_height: u32,
     pub pointer_magnifier_scale_percent: u32,
     pub pointer_color_code_enabled: bool,
+    pub region_magnifier_scale_percent: u32,
+    pub region_magnifier_x: i32,
+    pub region_magnifier_y: i32,
+    pub region_magnifier_width: u32,
+    pub region_magnifier_height: u32,
+    pub region_magnifier_regions: Vec<RegionMagnifierArea>,
+    pub region_magnifier_target_mode: RegionMagnifierTargetMode,
+    pub region_magnifier_target_app: String,
+    pub region_magnifier_border_visible: bool,
+    pub region_magnifier_mouse_passthrough: bool,
     pub monitor_selection: MonitorSelectionMode,
     pub effect_chain: Vec<String>,
     pub capture_title_bar: bool,
@@ -413,8 +524,9 @@ impl AppProfile {
     pub fn default_profile() -> Self {
         Self {
             id: "default".to_string(),
-            display_name: "기본 프로파일".to_string(),
+            display_name: "\u{ae30}\u{bcf8} \u{d504}\u{b85c}\u{d30c}\u{c77c}".to_string(),
             windowed_hotkey: "Ctrl+Alt+Q".to_string(),
+            hotkeys: HotkeySettings::default(),
             match_rule: ProfileMatchRule::empty(),
             scaling_mode: ScalingMode::Windowed,
             capture_method: CaptureMethod::WindowsGraphicsCapture,
@@ -423,6 +535,16 @@ impl AppProfile {
             pointer_magnifier_height: 100,
             pointer_magnifier_scale_percent: 200,
             pointer_color_code_enabled: false,
+            region_magnifier_scale_percent: 200,
+            region_magnifier_x: 0,
+            region_magnifier_y: 0,
+            region_magnifier_width: 0,
+            region_magnifier_height: 0,
+            region_magnifier_regions: Vec::new(),
+            region_magnifier_target_mode: RegionMagnifierTargetMode::AllScreens,
+            region_magnifier_target_app: String::new(),
+            region_magnifier_border_visible: true,
+            region_magnifier_mouse_passthrough: false,
             monitor_selection: MonitorSelectionMode::Closest,
             effect_chain: vec!["bilinear".to_string()],
             capture_title_bar: true,
@@ -444,8 +566,89 @@ impl AppProfile {
         }
     }
 
+    pub fn sync_legacy_hotkey_alias(&mut self) {
+        self.windowed_hotkey = self.hotkeys.windowed_toggle.clone();
+    }
+
+    pub fn inherit_hotkeys_from_global(&mut self, global_hotkeys: &HotkeySettings) {
+        let legacy_windowed = self.windowed_hotkey.clone();
+        self.hotkeys = global_hotkeys.clone();
+        if !legacy_windowed.trim().is_empty() {
+            self.hotkeys.windowed_toggle = legacy_windowed;
+        }
+        self.sync_legacy_hotkey_alias();
+    }
+
     pub fn windowed_scale_factor(&self) -> f32 {
         self.windowed_scale_percent as f32 / 100.0
+    }
+
+    pub fn region_magnifier_areas(&self) -> Vec<RegionMagnifierArea> {
+        let mut regions = self
+            .region_magnifier_regions
+            .iter()
+            .cloned()
+            .map(RegionMagnifierArea::sanitized)
+            .filter(|region| region.width > 0 && region.height > 0)
+            .collect::<Vec<_>>();
+        if regions.is_empty() && self.region_magnifier_width > 0 && self.region_magnifier_height > 0
+        {
+            regions.push(
+                RegionMagnifierArea::new(
+                    "region-1",
+                    self.region_magnifier_x,
+                    self.region_magnifier_y,
+                    self.region_magnifier_width,
+                    self.region_magnifier_height,
+                    self.region_magnifier_scale_percent,
+                )
+                .sanitized(),
+            );
+        }
+        regions
+    }
+
+    pub fn normalize_region_magnifier_settings(&mut self) {
+        self.region_magnifier_scale_percent = self.region_magnifier_scale_percent.clamp(50, 1000);
+        self.region_magnifier_x = self.region_magnifier_x.clamp(-100_000, 100_000);
+        self.region_magnifier_y = self.region_magnifier_y.clamp(-100_000, 100_000);
+        self.region_magnifier_width = self.region_magnifier_width.min(5000);
+        self.region_magnifier_height = self.region_magnifier_height.min(5000);
+        self.region_magnifier_regions = self.region_magnifier_areas();
+        self.sync_region_magnifier_legacy_fields();
+    }
+
+    pub fn sync_region_magnifier_legacy_fields(&mut self) {
+        if let Some(first) = self
+            .region_magnifier_regions
+            .iter()
+            .cloned()
+            .map(RegionMagnifierArea::sanitized)
+            .find(|region| region.width > 0 && region.height > 0)
+        {
+            self.region_magnifier_x = first.x;
+            self.region_magnifier_y = first.y;
+            self.region_magnifier_width = first.width;
+            self.region_magnifier_height = first.height;
+        } else {
+            self.region_magnifier_width = 0;
+            self.region_magnifier_height = 0;
+        }
+    }
+
+    pub fn next_region_magnifier_area_id(&self) -> String {
+        let mut index = self.region_magnifier_regions.len() + 1;
+        loop {
+            let id = format!("region-{index}");
+            if !self
+                .region_magnifier_regions
+                .iter()
+                .any(|region| region.id == id)
+            {
+                return id;
+            }
+            index += 1;
+        }
     }
 }
 
@@ -543,6 +746,10 @@ pub struct HotkeySettings {
     pub screenshot: String,
     pub pointer_magnifier_toggle: String,
     pub pointer_screenshot: String,
+    pub region_magnifier_toggle: String,
+    pub region_screenshot: String,
+    pub region_select: String,
+    pub region_delete: String,
     pub pointer_color_code_toggle: String,
     pub pointer_color_code_copy: String,
     pub pointer_cursor_toggle: String,
@@ -557,6 +764,10 @@ impl Default for HotkeySettings {
             screenshot: "Shift+Alt+Q".to_string(),
             pointer_magnifier_toggle: "Ctrl+Alt+E".to_string(),
             pointer_screenshot: "Shift+Alt+E".to_string(),
+            region_magnifier_toggle: "Ctrl+Alt+D".to_string(),
+            region_screenshot: "Shift+Alt+D".to_string(),
+            region_select: "Ctrl+Alt+F".to_string(),
+            region_delete: "Ctrl+Alt+Z".to_string(),
             pointer_color_code_toggle: "Ctrl+Alt+C".to_string(),
             pointer_color_code_copy: "Shift+Alt+C".to_string(),
             pointer_cursor_toggle: "Ctrl+Alt+R".to_string(),
@@ -570,6 +781,8 @@ pub struct ScreenshotConfig {
     pub window_dir: String,
     /// Empty means "the directory that contains the running dodbogi executable".
     pub pointer_dir: String,
+    /// Empty means "the directory that contains the running dodbogi executable".
+    pub region_dir: String,
 }
 
 impl Default for ScreenshotConfig {
@@ -577,6 +790,7 @@ impl Default for ScreenshotConfig {
         Self {
             window_dir: String::new(),
             pointer_dir: String::new(),
+            region_dir: String::new(),
         }
     }
 }
@@ -726,6 +940,26 @@ impl DodbogiSettings {
         );
         push_kv_quoted(
             &mut output,
+            "hotkey_region_magnifier",
+            &self.hotkeys.region_magnifier_toggle,
+        );
+        push_kv_quoted(
+            &mut output,
+            "hotkey_region_screenshot",
+            &self.hotkeys.region_screenshot,
+        );
+        push_kv_quoted(
+            &mut output,
+            "hotkey_region_select",
+            &self.hotkeys.region_select,
+        );
+        push_kv_quoted(
+            &mut output,
+            "hotkey_region_delete",
+            &self.hotkeys.region_delete,
+        );
+        push_kv_quoted(
+            &mut output,
             "hotkey_pointer_color_code_toggle",
             &self.hotkeys.pointer_color_code_toggle,
         );
@@ -748,6 +982,11 @@ impl DodbogiSettings {
             &mut output,
             "pointer_screenshot_dir",
             &self.screenshots.pointer_dir,
+        );
+        push_kv_quoted(
+            &mut output,
+            "region_screenshot_dir",
+            &self.screenshots.region_dir,
         );
         push_kv_quoted(&mut output, "log_level", &self.diagnostics.log_level);
         push_kv_quoted(&mut output, "language", &self.ui.language);
@@ -801,6 +1040,71 @@ impl DodbogiSettings {
             push_kv_quoted(&mut output, "windowed_hotkey", &profile.windowed_hotkey);
             push_kv_quoted(
                 &mut output,
+                "hotkey_windowed",
+                &profile.hotkeys.windowed_toggle,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_fullscreen",
+                &profile.hotkeys.fullscreen_toggle,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_open_settings",
+                &profile.hotkeys.open_settings,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_screenshot",
+                &profile.hotkeys.screenshot,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_pointer_magnifier",
+                &profile.hotkeys.pointer_magnifier_toggle,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_pointer_screenshot",
+                &profile.hotkeys.pointer_screenshot,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_region_magnifier",
+                &profile.hotkeys.region_magnifier_toggle,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_region_screenshot",
+                &profile.hotkeys.region_screenshot,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_region_select",
+                &profile.hotkeys.region_select,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_region_delete",
+                &profile.hotkeys.region_delete,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_pointer_color_code_toggle",
+                &profile.hotkeys.pointer_color_code_toggle,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_pointer_color_code_copy",
+                &profile.hotkeys.pointer_color_code_copy,
+            );
+            push_kv_quoted(
+                &mut output,
+                "hotkey_pointer_cursor_toggle",
+                &profile.hotkeys.pointer_cursor_toggle,
+            );
+            push_kv_quoted(
+                &mut output,
                 "executable_name",
                 profile.match_rule.executable_name.as_deref().unwrap_or(""),
             );
@@ -844,6 +1148,56 @@ impl DodbogiSettings {
                 &mut output,
                 "pointer_color_code_enabled",
                 bool_setting(profile.pointer_color_code_enabled),
+            );
+            push_kv(
+                &mut output,
+                "region_magnifier_scale_percent",
+                &profile.region_magnifier_scale_percent.to_string(),
+            );
+            push_kv(
+                &mut output,
+                "region_magnifier_x",
+                &profile.region_magnifier_x.to_string(),
+            );
+            push_kv(
+                &mut output,
+                "region_magnifier_y",
+                &profile.region_magnifier_y.to_string(),
+            );
+            push_kv(
+                &mut output,
+                "region_magnifier_width",
+                &profile.region_magnifier_width.to_string(),
+            );
+            push_kv(
+                &mut output,
+                "region_magnifier_height",
+                &profile.region_magnifier_height.to_string(),
+            );
+            push_kv_quoted(
+                &mut output,
+                "region_magnifier_regions",
+                &encode_region_magnifier_regions(&profile.region_magnifier_regions),
+            );
+            push_kv_quoted(
+                &mut output,
+                "region_magnifier_target_mode",
+                profile.region_magnifier_target_mode.as_str(),
+            );
+            push_kv_quoted(
+                &mut output,
+                "region_magnifier_target_app",
+                &profile.region_magnifier_target_app,
+            );
+            push_kv(
+                &mut output,
+                "region_magnifier_border_visible",
+                bool_setting(profile.region_magnifier_border_visible),
+            );
+            push_kv(
+                &mut output,
+                "region_magnifier_mouse_passthrough",
+                bool_setting(profile.region_magnifier_mouse_passthrough),
             );
             push_kv_quoted(
                 &mut output,
@@ -964,16 +1318,24 @@ pub fn settings_ui_coverage(settings: &DodbogiSettings) -> SettingsUiCoverageRep
                     && !settings.hotkeys.pointer_magnifier_toggle.is_empty()
                     && !settings.hotkeys.screenshot.is_empty()
                     && !settings.hotkeys.pointer_screenshot.is_empty()
+                    && !settings.hotkeys.region_magnifier_toggle.is_empty()
+                    && !settings.hotkeys.region_screenshot.is_empty()
+                    && !settings.hotkeys.region_select.is_empty()
+                    && !settings.hotkeys.region_delete.is_empty()
                     && !settings.hotkeys.pointer_color_code_toggle.is_empty()
                     && !settings.hotkeys.pointer_color_code_copy.is_empty()
                     && !settings.hotkeys.pointer_cursor_toggle.is_empty(),
                 detail: format!(
-                    "{}/{}/{}/{}/{}/{}/{}/{}",
+                    "{}/{}/{}/{}/{}/{}/{}/{}/{}/{}/{}/{}",
                     settings.hotkeys.windowed_toggle,
                     settings.hotkeys.fullscreen_toggle,
                     settings.hotkeys.pointer_magnifier_toggle,
                     settings.hotkeys.screenshot,
                     settings.hotkeys.pointer_screenshot,
+                    settings.hotkeys.region_magnifier_toggle,
+                    settings.hotkeys.region_screenshot,
+                    settings.hotkeys.region_select,
+                    settings.hotkeys.region_delete,
                     settings.hotkeys.pointer_color_code_toggle,
                     settings.hotkeys.pointer_color_code_copy,
                     settings.hotkeys.pointer_cursor_toggle
@@ -992,10 +1354,27 @@ pub fn settings_ui_coverage(settings: &DodbogiSettings) -> SettingsUiCoverageRep
                 ),
             },
             SettingsUiSection {
+                id: "region_magnifier",
+                covered: default.region_magnifier_scale_percent > 0,
+                detail: format!(
+                    "{},{},{}x{}@{}%; areas={}; target={}:{}; border={}; mouse_passthrough={}",
+                    default.region_magnifier_x,
+                    default.region_magnifier_y,
+                    default.region_magnifier_width,
+                    default.region_magnifier_height,
+                    default.region_magnifier_scale_percent,
+                    default.region_magnifier_regions.len(),
+                    default.region_magnifier_target_mode.as_str(),
+                    default.region_magnifier_target_app,
+                    default.region_magnifier_border_visible,
+                    default.region_magnifier_mouse_passthrough
+                ),
+            },
+            SettingsUiSection {
                 id: "screenshots",
                 covered: true,
                 detail: format!(
-                    "window={}, pointer={}",
+                    "window={}, pointer={}, region={}",
                     if settings.screenshots.window_dir.is_empty() {
                         "<program-dir>"
                     } else {
@@ -1005,6 +1384,11 @@ pub fn settings_ui_coverage(settings: &DodbogiSettings) -> SettingsUiCoverageRep
                         "<program-dir>"
                     } else {
                         &settings.screenshots.pointer_dir
+                    },
+                    if settings.screenshots.region_dir.is_empty() {
+                        "<program-dir>"
+                    } else {
+                        &settings.screenshots.region_dir
                     }
                 ),
             },
@@ -1097,6 +1481,82 @@ fn unquote_setting(value: &str) -> String {
     out
 }
 
+fn encode_region_magnifier_regions(regions: &[RegionMagnifierArea]) -> String {
+    regions
+        .iter()
+        .map(|region| {
+            let region = region.clone().sanitized();
+            format!(
+                "{},{},{},{},{},{},{},{},{}",
+                region.id,
+                region.x,
+                region.y,
+                region.width,
+                region.height,
+                region.scale_percent,
+                u8::from(region.output_position_set),
+                region.output_x,
+                region.output_y
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+fn parse_region_magnifier_regions(
+    value: &str,
+    line: usize,
+) -> Result<Vec<RegionMagnifierArea>, SettingsParseError> {
+    let raw = unquote_setting(value);
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut regions = Vec::new();
+    for item in trimmed.split(';').filter(|item| !item.trim().is_empty()) {
+        let parts = item.split(',').map(str::trim).collect::<Vec<_>>();
+        if parts.len() != 9 {
+            return Err(SettingsParseError {
+                line,
+                detail: "invalid region_magnifier_regions entry".to_string(),
+            });
+        }
+        let parse_i32_part = |index: usize, label: &str| -> Result<i32, SettingsParseError> {
+            parts[index]
+                .parse::<i32>()
+                .map_err(|error| SettingsParseError {
+                    line,
+                    detail: format!("invalid {label} in region_magnifier_regions: {error}"),
+                })
+        };
+        let parse_u32_part = |index: usize, label: &str| -> Result<u32, SettingsParseError> {
+            parts[index]
+                .parse::<u32>()
+                .map_err(|error| SettingsParseError {
+                    line,
+                    detail: format!("invalid {label} in region_magnifier_regions: {error}"),
+                })
+        };
+        let output_position_set = matches!(parts[6], "1" | "true" | "yes" | "set" | "positioned");
+        regions.push(
+            RegionMagnifierArea {
+                id: parts[0].to_string(),
+                x: parse_i32_part(1, "x")?,
+                y: parse_i32_part(2, "y")?,
+                width: parse_u32_part(3, "width")?,
+                height: parse_u32_part(4, "height")?,
+                scale_percent: parse_u32_part(5, "scale_percent")?,
+                output_position_set,
+                output_x: parse_i32_part(7, "output_x")?,
+                output_y: parse_i32_part(8, "output_y")?,
+            }
+            .sanitized(),
+        );
+    }
+    Ok(regions)
+}
+
 fn parse_bool(value: &str, line: usize) -> Result<bool, SettingsParseError> {
     match value.trim() {
         "true" => Ok(true),
@@ -1118,13 +1578,33 @@ fn parse_u32(value: &str, line: usize, key: &str) -> Result<u32, SettingsParseEr
         })
 }
 
+fn parse_i32(value: &str, line: usize, key: &str) -> Result<i32, SettingsParseError> {
+    value
+        .trim()
+        .parse::<i32>()
+        .map_err(|error| SettingsParseError {
+            line,
+            detail: format!("invalid integer for {key}: {error}"),
+        })
+}
+
 fn parse_settings(raw: &str) -> Result<DodbogiSettings, SettingsParseError> {
+    struct ParsedProfile {
+        profile: AppProfile,
+        explicit_hotkeys: bool,
+    }
+
     let mut settings = DodbogiSettings::default();
-    let mut profiles = Vec::<AppProfile>::new();
-    let mut current_profile: Option<AppProfile> = None;
+    let mut profiles = Vec::<ParsedProfile>::new();
+    let mut current_profile: Option<ParsedProfile> = None;
 
     for (index, line) in raw.lines().enumerate() {
         let line_no = index + 1;
+        let line = if index == 0 {
+            line.trim_start_matches('\u{feff}')
+        } else {
+            line
+        };
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
@@ -1133,7 +1613,10 @@ fn parse_settings(raw: &str) -> Result<DodbogiSettings, SettingsParseError> {
             if let Some(profile) = current_profile.take() {
                 profiles.push(profile);
             }
-            current_profile = Some(AppProfile::default_profile());
+            current_profile = Some(ParsedProfile {
+                profile: AppProfile::default_profile(),
+                explicit_hotkeys: false,
+            });
             continue;
         }
         let (key, value) = trimmed.split_once('=').ok_or_else(|| SettingsParseError {
@@ -1143,8 +1626,10 @@ fn parse_settings(raw: &str) -> Result<DodbogiSettings, SettingsParseError> {
         let key = key.trim();
         let value = value.trim();
 
-        if let Some(profile) = current_profile.as_mut() {
-            parse_profile_key(profile, key, value, line_no)?;
+        if let Some(parsed_profile) = current_profile.as_mut() {
+            if parse_profile_key(&mut parsed_profile.profile, key, value, line_no)? {
+                parsed_profile.explicit_hotkeys = true;
+            }
         } else {
             parse_global_key(&mut settings, key, value, line_no)?;
         }
@@ -1155,12 +1640,25 @@ fn parse_settings(raw: &str) -> Result<DodbogiSettings, SettingsParseError> {
     }
 
     if !profiles.is_empty() {
-        let default_index = profiles
+        for parsed in &mut profiles {
+            if !parsed.explicit_hotkeys {
+                parsed
+                    .profile
+                    .inherit_hotkeys_from_global(&settings.hotkeys);
+            } else {
+                parsed.profile.sync_legacy_hotkey_alias();
+            }
+        }
+        let mut raw_profiles = profiles
+            .into_iter()
+            .map(|parsed| parsed.profile)
+            .collect::<Vec<_>>();
+        let default_index = raw_profiles
             .iter()
             .position(|profile| profile.id == "default")
             .unwrap_or(0);
-        settings.profiles.default_profile = profiles.remove(default_index);
-        settings.profiles.per_app_profiles = profiles
+        settings.profiles.default_profile = raw_profiles.remove(default_index);
+        settings.profiles.per_app_profiles = raw_profiles
             .into_iter()
             .filter(|profile| profile.id != settings.profiles.default_profile.id)
             .collect();
@@ -1186,6 +1684,12 @@ fn parse_global_key(
             settings.hotkeys.pointer_magnifier_toggle = unquote_setting(value)
         }
         "hotkey_pointer_screenshot" => settings.hotkeys.pointer_screenshot = unquote_setting(value),
+        "hotkey_region_magnifier" => {
+            settings.hotkeys.region_magnifier_toggle = unquote_setting(value)
+        }
+        "hotkey_region_screenshot" => settings.hotkeys.region_screenshot = unquote_setting(value),
+        "hotkey_region_select" => settings.hotkeys.region_select = unquote_setting(value),
+        "hotkey_region_delete" => settings.hotkeys.region_delete = unquote_setting(value),
         "hotkey_pointer_color_code_toggle" => {
             settings.hotkeys.pointer_color_code_toggle = unquote_setting(value)
         }
@@ -1197,6 +1701,7 @@ fn parse_global_key(
         }
         "window_screenshot_dir" => settings.screenshots.window_dir = unquote_setting(value),
         "pointer_screenshot_dir" => settings.screenshots.pointer_dir = unquote_setting(value),
+        "region_screenshot_dir" => settings.screenshots.region_dir = unquote_setting(value),
         "log_level" => settings.diagnostics.log_level = unquote_setting(value),
         "language" => settings.ui.language = unquote_setting(value),
         "log_output_enabled" => settings.ui.log_output_enabled = parse_bool(value, line)?,
@@ -1225,7 +1730,7 @@ fn parse_global_key(
             return Err(SettingsParseError {
                 line,
                 detail: format!("unknown global settings key {other}"),
-            })
+            });
         }
     }
     Ok(())
@@ -1236,11 +1741,70 @@ fn parse_profile_key(
     key: &str,
     value: &str,
     line: usize,
-) -> Result<(), SettingsParseError> {
+) -> Result<bool, SettingsParseError> {
+    let mut parsed_hotkey = false;
     match key {
         "id" => profile.id = unquote_setting(value),
         "display_name" => profile.display_name = unquote_setting(value),
-        "windowed_hotkey" => profile.windowed_hotkey = unquote_setting(value),
+        "windowed_hotkey" => {
+            let hotkey = unquote_setting(value);
+            profile.windowed_hotkey = hotkey.clone();
+            profile.hotkeys.windowed_toggle = hotkey;
+        }
+        "hotkey_windowed" => {
+            let hotkey = unquote_setting(value);
+            profile.hotkeys.windowed_toggle = hotkey.clone();
+            profile.windowed_hotkey = hotkey;
+            parsed_hotkey = true;
+        }
+        "hotkey_fullscreen" => {
+            profile.hotkeys.fullscreen_toggle = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_open_settings" => {
+            profile.hotkeys.open_settings = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_screenshot" => {
+            profile.hotkeys.screenshot = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_pointer_magnifier" => {
+            profile.hotkeys.pointer_magnifier_toggle = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_pointer_screenshot" => {
+            profile.hotkeys.pointer_screenshot = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_region_magnifier" => {
+            profile.hotkeys.region_magnifier_toggle = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_region_screenshot" => {
+            profile.hotkeys.region_screenshot = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_region_select" => {
+            profile.hotkeys.region_select = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_region_delete" => {
+            profile.hotkeys.region_delete = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_pointer_color_code_toggle" => {
+            profile.hotkeys.pointer_color_code_toggle = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_pointer_color_code_copy" => {
+            profile.hotkeys.pointer_color_code_copy = unquote_setting(value);
+            parsed_hotkey = true;
+        }
+        "hotkey_pointer_cursor_toggle" => {
+            profile.hotkeys.pointer_cursor_toggle = unquote_setting(value);
+            parsed_hotkey = true;
+        }
         "executable_name" => {
             profile.match_rule.executable_name = non_empty_string(unquote_setting(value))
         }
@@ -1281,6 +1845,42 @@ fn parse_profile_key(
         "pointer_color_code_enabled" => {
             profile.pointer_color_code_enabled = parse_bool(value, line)?;
         }
+        "region_magnifier_scale_percent" => {
+            profile.region_magnifier_scale_percent = parse_u32(value, line, key)?;
+        }
+        "region_magnifier_x" => {
+            profile.region_magnifier_x = parse_i32(value, line, key)?;
+        }
+        "region_magnifier_y" => {
+            profile.region_magnifier_y = parse_i32(value, line, key)?;
+        }
+        "region_magnifier_width" => {
+            profile.region_magnifier_width = parse_u32(value, line, key)?;
+        }
+        "region_magnifier_height" => {
+            profile.region_magnifier_height = parse_u32(value, line, key)?;
+        }
+        "region_magnifier_regions" => {
+            profile.region_magnifier_regions = parse_region_magnifier_regions(value, line)?;
+        }
+        "region_magnifier_target_mode" => {
+            profile.region_magnifier_target_mode = RegionMagnifierTargetMode::from_setting(
+                &unquote_setting(value),
+            )
+            .ok_or_else(|| SettingsParseError {
+                line,
+                detail: "unknown region_magnifier_target_mode".to_string(),
+            })?;
+        }
+        "region_magnifier_target_app" => {
+            profile.region_magnifier_target_app = unquote_setting(value);
+        }
+        "region_magnifier_border_visible" => {
+            profile.region_magnifier_border_visible = parse_bool(value, line)?;
+        }
+        "region_magnifier_mouse_passthrough" => {
+            profile.region_magnifier_mouse_passthrough = parse_bool(value, line)?;
+        }
         "monitor_selection" => {
             profile.monitor_selection = MonitorSelectionMode::from_setting(&unquote_setting(value))
                 .ok_or_else(|| SettingsParseError {
@@ -1303,10 +1903,10 @@ fn parse_profile_key(
             return Err(SettingsParseError {
                 line,
                 detail: format!("unknown profile settings key {other}"),
-            })
+            });
         }
     }
-    Ok(())
+    Ok(parsed_hotkey)
 }
 
 fn non_empty_string(value: String) -> Option<String> {
@@ -2374,16 +2974,18 @@ mod tests {
         settings.hotkeys.windowed_toggle = "Ctrl+Shift+W".to_string();
         settings.ui.language = "en".to_string();
         settings.ui.log_output_enabled = true;
-        settings.profiles.default_profile.windowed_hotkey = "Ctrl+Alt+Z".to_string();
-        settings.diagnostics.enable_stats_overlay = true;
+        settings.profiles.default_profile.windowed_hotkey = "Ctrl+Alt+X".to_string();
+        settings.profiles.default_profile.hotkeys.windowed_toggle = "Ctrl+Alt+X".to_string();
         settings
             .profiles
-            .per_app_profiles
-            .push(AppProfile::per_app_profile(
-                "terminal",
-                "Windows Terminal",
-                "WindowsTerminal.exe",
-            ));
+            .default_profile
+            .hotkeys
+            .pointer_magnifier_toggle = "Ctrl+Shift+E".to_string();
+        settings.diagnostics.enable_stats_overlay = true;
+        let mut terminal =
+            AppProfile::per_app_profile("terminal", "Windows Terminal", "WindowsTerminal.exe");
+        terminal.hotkeys.pointer_magnifier_toggle = "Ctrl+Shift+T".to_string();
+        settings.profiles.per_app_profiles.push(terminal);
 
         let raw = settings.to_toml_string();
         let parsed = DodbogiSettings::from_toml_str(&raw).expect("settings should parse");
@@ -2392,7 +2994,15 @@ mod tests {
         assert!(parsed.ui.log_output_enabled);
         assert_eq!(
             parsed.profiles.default_profile.windowed_hotkey,
-            "Ctrl+Alt+Z"
+            "Ctrl+Alt+X"
+        );
+        assert_eq!(
+            parsed
+                .profiles
+                .default_profile
+                .hotkeys
+                .pointer_magnifier_toggle,
+            "Ctrl+Shift+E"
         );
         assert!(parsed.diagnostics.enable_stats_overlay);
         assert_eq!(parsed.profiles.per_app_profiles.len(), 1);
@@ -2403,6 +3013,106 @@ mod tests {
                 .as_deref(),
             Some("WindowsTerminal.exe")
         );
+        assert_eq!(
+            parsed.profiles.per_app_profiles[0]
+                .hotkeys
+                .pointer_magnifier_toggle,
+            "Ctrl+Shift+T"
+        );
+    }
+
+    #[test]
+    fn legacy_global_hotkeys_are_inherited_by_profiles_without_profile_hotkeys() {
+        let raw = r#"
+version = 1
+hotkey_pointer_magnifier = "Ctrl+Shift+E"
+hotkey_region_delete = "Ctrl+Shift+Z"
+
+[[profile]]
+id = "default"
+display_name = "Default"
+windowed_hotkey = "Ctrl+Alt+Q"
+
+[[profile]]
+id = "app"
+display_name = "App"
+windowed_hotkey = "Ctrl+Alt+W"
+executable_name = "app.exe"
+"#;
+
+        let parsed = DodbogiSettings::from_toml_str(raw).expect("legacy settings should parse");
+        assert_eq!(
+            parsed
+                .profiles
+                .default_profile
+                .hotkeys
+                .pointer_magnifier_toggle,
+            "Ctrl+Shift+E"
+        );
+        assert_eq!(
+            parsed.profiles.per_app_profiles[0].hotkeys.windowed_toggle,
+            "Ctrl+Alt+W"
+        );
+        assert_eq!(
+            parsed.profiles.per_app_profiles[0].hotkeys.region_delete,
+            "Ctrl+Shift+Z"
+        );
+    }
+
+    #[test]
+    fn region_magnifier_regions_roundtrip_per_area_scale_output_and_target() {
+        let mut settings = DodbogiSettings::default();
+        assert!(settings
+            .profiles
+            .default_profile
+            .region_magnifier_areas()
+            .is_empty());
+
+        let profile = &mut settings.profiles.default_profile;
+        profile.region_magnifier_scale_percent = 250;
+        profile.region_magnifier_regions = vec![
+            RegionMagnifierArea {
+                id: "alpha".to_string(),
+                x: 10,
+                y: 20,
+                width: 120,
+                height: 80,
+                scale_percent: 320,
+                output_position_set: true,
+                output_x: 400,
+                output_y: 500,
+            },
+            RegionMagnifierArea::new("beta", -30, 40, 50, 60, 150),
+        ];
+        profile.region_magnifier_target_mode = RegionMagnifierTargetMode::SelectedApp;
+        profile.region_magnifier_target_app = "Code.exe".to_string();
+        profile.region_magnifier_border_visible = false;
+        profile.region_magnifier_mouse_passthrough = true;
+        profile.sync_region_magnifier_legacy_fields();
+
+        let raw = settings.to_toml_string();
+        let parsed = DodbogiSettings::from_toml_str(&raw).expect("settings should parse");
+        let parsed_profile = &parsed.profiles.default_profile;
+        let regions = parsed_profile.region_magnifier_areas();
+
+        assert_eq!(regions.len(), 2);
+        assert_eq!(regions[0].id, "alpha");
+        assert_eq!(regions[0].scale_percent, 320);
+        assert!(regions[0].output_position_set);
+        assert_eq!((regions[0].output_x, regions[0].output_y), (400, 500));
+        assert_eq!(regions[1].id, "beta");
+        assert_eq!(regions[1].source_rect().expect("source rect").width(), 50);
+        assert_eq!(
+            parsed_profile.region_magnifier_target_mode,
+            RegionMagnifierTargetMode::SelectedApp
+        );
+        assert_eq!(parsed_profile.region_magnifier_target_app, "Code.exe");
+        assert!(!parsed_profile.region_magnifier_border_visible);
+        assert!(parsed_profile.region_magnifier_mouse_passthrough);
+        assert_eq!(parsed_profile.region_magnifier_x, 10);
+        assert_eq!(parsed_profile.region_magnifier_y, 20);
+        assert_eq!(parsed_profile.region_magnifier_width, 120);
+        assert_eq!(parsed_profile.region_magnifier_height, 80);
     }
 
     #[test]
@@ -2417,6 +3127,17 @@ mod tests {
         let raw = "version = 1\nunknown_key = \"value\"\n";
         let error = DodbogiSettings::from_toml_str(raw).expect_err("unknown key should fail");
         assert!(error.detail.contains("unknown global settings key"));
+    }
+
+    #[test]
+    fn settings_parser_accepts_utf8_bom_before_comment() {
+        let raw = format!(
+            "\u{feff}# Dodbogi settings v1\n{}",
+            DodbogiSettings::default().to_toml_string()
+        );
+        let parsed = DodbogiSettings::from_toml_str(&raw).expect("BOM before comment should parse");
+        assert_eq!(parsed.version, 1);
+        assert_eq!(parsed.profiles.default_profile.id, "default");
     }
 
     #[test]

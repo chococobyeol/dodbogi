@@ -12,8 +12,8 @@ use dodbogi_core::{
     preserve_windowed_destination_for_source_change_in_work_area, save_settings_to_path,
     settings_ui_coverage, windowed_work_area_for_source, write_default_settings_if_missing,
     AppProfile, DiagnosticsSnapshot, DodbogiSettings, LayoutRequest, MonitorSelectionMode,
-    ProfileMatchContext, ProfileResolutionSource, RuntimePaths, ScalingMode, ScalingSession,
-    SourceWindow, SourceWindowEvent, StopReason,
+    ProfileMatchContext, ProfileResolutionSource, RegionMagnifierArea, RegionMagnifierTargetMode,
+    RuntimePaths, ScalingMode, ScalingSession, SourceWindow, SourceWindowEvent, StopReason,
 };
 use dodbogi_effects::{
     builtin_effects, checkerboard_fixture, default_quality_chain, high_contrast_edge_fixture,
@@ -36,11 +36,12 @@ use dodbogi_win32::{
     cursor_position_for_probe, cursor_speed_for_probe, deliver_input_to_source, enumerate_monitors,
     foreground_or_fallback_source_window, foreground_source_window, is_foreground_move_size_active,
     move_cursor_for_probe, move_window_for_probe, recover_cursor_speed_guard,
-    resize_window_for_probe, run_controlled_input_probe, set_cursor_speed_for_probe,
-    source_window_from_raw, ControlledInputProbeReport, CursorCaptureController,
-    CursorCaptureReport, HotkeyRegistry, InputDeliveryMode, InputDeliveryReport, OverlayWindow,
-    PointerMagnifierConfig, PointerMagnifierScreenshotReport, PointerMagnifierWindow, ShellMessage,
-    ShellTrayIcon, SystemHotkeyGuard, TrayController,
+    resize_window_for_probe, run_controlled_input_probe, screen_rect_topmost_window_for_executable,
+    set_cursor_speed_for_probe, source_window_from_raw, ControlledInputProbeReport,
+    CursorCaptureController, CursorCaptureReport, HotkeyRegistry, InputDeliveryMode,
+    InputDeliveryReport, OverlayWindow, PointerMagnifierConfig, PointerMagnifierScreenshotReport,
+    PointerMagnifierWindow, RegionMagnifierConfig, RegionMagnifierScreenshotReport,
+    RegionMagnifierWindow, ShellMessage, ShellTrayIcon, SystemHotkeyGuard, TrayController,
 };
 
 mod settings_ui;
@@ -211,6 +212,30 @@ struct RuntimePointerScreenshotReport {
     output_height: u32,
 }
 
+struct RuntimeRegionScreenshotReport {
+    path: PathBuf,
+    output_width: u32,
+    output_height: u32,
+}
+
+struct RuntimeRegionScreenshotsReport {
+    reports: Vec<RuntimeRegionScreenshotReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegionMagnifierStateChange {
+    id: String,
+    output_x: i32,
+    output_y: i32,
+    scale_percent: u32,
+}
+
+struct ActiveRegionMagnifier {
+    id: String,
+    window: RegionMagnifierWindow,
+    config: RegionMagnifierConfig,
+}
+
 struct RuntimeInputForwardReport {
     source_hwnd: isize,
     kind: InputEventKind,
@@ -275,6 +300,19 @@ fn resolve_user_screenshot_dir(raw: &str) -> PathBuf {
         path
     } else {
         program_root.join(path)
+    }
+}
+
+fn sanitize_filename_component(raw: &str) -> String {
+    let safe = raw
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+        .take(48)
+        .collect::<String>();
+    if safe.is_empty() {
+        "region".to_string()
+    } else {
+        safe
     }
 }
 
@@ -361,6 +399,10 @@ struct ProductRuntimeController {
     active: Option<ActiveScalingSession>,
     pointer_magnifier: Option<PointerMagnifierWindow>,
     pointer_magnifier_config: PointerMagnifierConfig,
+    region_magnifiers: Vec<ActiveRegionMagnifier>,
+    region_magnifier_configs: Vec<(String, RegionMagnifierConfig)>,
+    region_magnifier_target_mode: RegionMagnifierTargetMode,
+    region_magnifier_target_app: Option<String>,
     shader_cache_root: PathBuf,
     cursor_speed_guard_path: PathBuf,
 }
@@ -377,6 +419,10 @@ impl ProductRuntimeController {
                 show_color_code: false,
                 show_cursor: true,
             },
+            region_magnifiers: Vec::new(),
+            region_magnifier_configs: Vec::new(),
+            region_magnifier_target_mode: RegionMagnifierTargetMode::AllScreens,
+            region_magnifier_target_app: None,
             shader_cache_root,
             cursor_speed_guard_path,
         }
@@ -390,8 +436,36 @@ impl ProductRuntimeController {
         self.pointer_magnifier.is_some()
     }
 
+    fn is_region_magnifier_active(&self) -> bool {
+        !self.region_magnifiers.is_empty()
+    }
+
     fn apply_pointer_magnifier_profile(&mut self, profile: &AppProfile) {
         self.pointer_magnifier_config = PointerMagnifierConfig::from_profile(profile).sanitized();
+    }
+
+    fn apply_region_magnifier_profile(&mut self, profile: &AppProfile) {
+        self.region_magnifier_target_mode = profile.region_magnifier_target_mode;
+        self.region_magnifier_target_app =
+            if profile.region_magnifier_target_mode == RegionMagnifierTargetMode::SelectedApp {
+                let target = profile.region_magnifier_target_app.trim();
+                (!target.is_empty()).then(|| target.to_string())
+            } else {
+                None
+            };
+        self.region_magnifier_configs = profile
+            .region_magnifier_areas()
+            .into_iter()
+            .filter_map(|area| {
+                RegionMagnifierConfig::from_area(&area, profile.region_magnifier_scale_percent).map(
+                    |mut config| {
+                        config.border_visible = profile.region_magnifier_border_visible;
+                        config.mouse_passthrough = profile.region_magnifier_mouse_passthrough;
+                        (area.id, config.sanitized())
+                    },
+                )
+            })
+            .collect();
     }
 
     fn toggle_pointer_magnifier(
@@ -444,6 +518,226 @@ impl ProductRuntimeController {
             report.destination_rect.bottom,
             report.scale_percent
         )))
+    }
+
+    fn toggle_region_magnifier(
+        &mut self,
+        profile: &AppProfile,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        self.apply_region_magnifier_profile(profile);
+        if self.is_region_magnifier_active() {
+            self.hide_region_magnifiers();
+            return Ok(Some("region_magnifier_stopped".to_string()));
+        }
+        if self.region_magnifier_configs.is_empty() {
+            return Err("No selected-area zoom region is configured. Add a region first.".into());
+        }
+        self.ensure_region_magnifier_target_allowed(profile)?;
+        self.start_region_magnifiers_from_configs()
+    }
+
+    fn restart_region_magnifier_if_active(
+        &mut self,
+        profile: &AppProfile,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        let was_active = self.is_region_magnifier_active();
+        self.apply_region_magnifier_profile(profile);
+        if !was_active {
+            return Ok(None);
+        }
+        if self.region_magnifier_configs.is_empty() {
+            self.hide_region_magnifiers();
+            return Ok(Some("region_magnifier_stopped_missing_region".to_string()));
+        }
+        self.ensure_region_magnifier_target_allowed(profile)?;
+        if self.region_magnifiers.len() == self.region_magnifier_configs.len()
+            && self
+                .region_magnifiers
+                .iter()
+                .zip(self.region_magnifier_configs.iter())
+                .all(|(active, (id, _))| active.id == *id)
+        {
+            for (active, (_, config)) in self
+                .region_magnifiers
+                .iter_mut()
+                .zip(self.region_magnifier_configs.iter())
+            {
+                let report = active
+                    .window
+                    .apply_profile_config(*config)
+                    .map_err(|error| format!("{error:?}"))?;
+                active.config = RegionMagnifierConfig {
+                    source_rect: report.source_rect,
+                    scale_percent: report.scale_percent,
+                    output_position: Some((
+                        report.destination_rect.left,
+                        report.destination_rect.top,
+                    )),
+                    border_visible: config.border_visible,
+                    mouse_passthrough: config.mouse_passthrough,
+                };
+            }
+            self.apply_region_magnifier_z_order_policy();
+            return Ok(Some(format!(
+                "region_magnifier_refreshed count={} border_visible={} mouse_passthrough={}",
+                self.region_magnifiers.len(),
+                profile.region_magnifier_border_visible,
+                profile.region_magnifier_mouse_passthrough
+            )));
+        }
+        self.hide_region_magnifiers();
+        self.start_region_magnifiers_from_configs()
+    }
+
+    fn hide_region_magnifiers(&mut self) {
+        for active in &mut self.region_magnifiers {
+            active.window.hide();
+        }
+        self.region_magnifiers.clear();
+    }
+
+    fn set_region_magnifiers_topmost(&mut self, topmost: bool) {
+        for active in &mut self.region_magnifiers {
+            active.window.set_topmost(topmost);
+        }
+    }
+
+    fn apply_region_magnifier_z_order_policy(&mut self) {
+        match self.region_magnifier_target_mode {
+            RegionMagnifierTargetMode::AllScreens => {
+                self.set_region_magnifiers_topmost(true);
+            }
+            RegionMagnifierTargetMode::SelectedApp => {
+                for active in &mut self.region_magnifiers {
+                    active.window.set_topmost(false);
+                }
+            }
+        }
+    }
+
+    fn ensure_region_magnifier_target_allowed(
+        &self,
+        profile: &AppProfile,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if profile.region_magnifier_target_mode != RegionMagnifierTargetMode::SelectedApp {
+            return Ok(());
+        }
+        let target = profile.region_magnifier_target_app.trim();
+        if target.is_empty() {
+            return Err("No target app is selected for selected-area zoom.".into());
+        }
+        let target_running = dodbogi_win32::running_apps_for_region()
+            .map_err(|error| format!("{error:?}"))?
+            .iter()
+            .any(|app| app.executable_name.eq_ignore_ascii_case(target));
+        if target_running {
+            Ok(())
+        } else {
+            Err(format!("Selected-area zoom target app is not running or visible: {target}").into())
+        }
+    }
+
+    fn start_region_magnifiers_from_configs(
+        &mut self,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        if self.region_magnifier_configs.is_empty() {
+            return Err("No selected-area zoom region is configured. Add a region first.".into());
+        }
+        let mut started = Vec::new();
+        for (id, config) in self.region_magnifier_configs.clone() {
+            let mut magnifier =
+                RegionMagnifierWindow::create_hidden().map_err(|error| format!("{error:?}"))?;
+            let report = magnifier
+                .update(config)
+                .map_err(|error| format!("{error:?}"))?;
+            started.push(ActiveRegionMagnifier {
+                id,
+                window: magnifier,
+                config: RegionMagnifierConfig {
+                    source_rect: report.source_rect,
+                    scale_percent: report.scale_percent,
+                    output_position: Some((
+                        report.destination_rect.left,
+                        report.destination_rect.top,
+                    )),
+                    border_visible: config.border_visible,
+                    mouse_passthrough: config.mouse_passthrough,
+                },
+            });
+        }
+        let count = started.len();
+        let detail = started
+            .first()
+            .map(|active| {
+                format!(
+                    "region_magnifier_started count={} first_id={} hwnd={}",
+                    count,
+                    active.id,
+                    active.window.hwnd()
+                )
+            })
+            .unwrap_or_else(|| "region_magnifier_started count=0".to_string());
+        self.region_magnifiers = started;
+        self.apply_region_magnifier_z_order_policy();
+        Ok(Some(detail))
+    }
+
+    fn update_region_magnifier(
+        &mut self,
+    ) -> Result<Vec<RegionMagnifierStateChange>, Box<dyn std::error::Error>> {
+        if self.region_magnifiers.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut changes = Vec::new();
+        for active in &mut self.region_magnifiers {
+            let selected_target_hwnd =
+                if let Some(target_app) = self.region_magnifier_target_app.as_deref() {
+                    match screen_rect_topmost_window_for_executable(
+                        active.config.source_rect,
+                        target_app,
+                    ) {
+                        Ok(Some(hwnd)) => Some(hwnd),
+                        Ok(None) => {
+                            active.window.hide();
+                            continue;
+                        }
+                        Err(error) => {
+                            active.window.hide();
+                            return Err(format!("{error:?}").into());
+                        }
+                    }
+                } else {
+                    None
+                };
+            let report = active
+                .window
+                .update(active.config)
+                .map_err(|error| format!("{error:?}"))?;
+            if let Some(target_hwnd) = selected_target_hwnd {
+                active.window.follow_target_z_order(target_hwnd);
+            } else {
+                active.window.set_topmost(true);
+            }
+            let output_position = Some((report.destination_rect.left, report.destination_rect.top));
+            let changed = active.config.output_position != output_position
+                || active.config.scale_percent != report.scale_percent;
+            active.config = RegionMagnifierConfig {
+                source_rect: report.source_rect,
+                scale_percent: report.scale_percent,
+                output_position,
+                border_visible: active.config.border_visible,
+                mouse_passthrough: active.config.mouse_passthrough,
+            };
+            if changed {
+                changes.push(RegionMagnifierStateChange {
+                    id: active.id.clone(),
+                    output_x: report.destination_rect.left,
+                    output_y: report.destination_rect.top,
+                    scale_percent: report.scale_percent,
+                });
+            }
+        }
+        Ok(changes)
     }
 
     fn apply_runtime_profile(
@@ -725,18 +1019,18 @@ impl ProductRuntimeController {
                             }
                         } else {
                             Ok(Some(format!(
-                        "runtime_layout_update source={} source_rect={},{},{},{} destination={},{},{},{} layout_policy=deferred_scaler_resize_retry resized_scaler=false recreated_scaler=false scaler_resize_deferred=true move_size_active={} detail={error}",
-                        active.source_hwnd,
-                        active.input_transform.source.left,
-                        active.input_transform.source.top,
-                        active.input_transform.source.right,
-                        active.input_transform.source.bottom,
-                        destination.left,
-                        destination.top,
-                        destination.right,
-                        destination.bottom,
-                        move_size_active
-                    )))
+                                "runtime_layout_update source={} source_rect={},{},{},{} destination={},{},{},{} layout_policy=deferred_scaler_resize_retry resized_scaler=false recreated_scaler=false scaler_resize_deferred=true move_size_active={} detail={error}",
+                                active.source_hwnd,
+                                active.input_transform.source.left,
+                                active.input_transform.source.top,
+                                active.input_transform.source.right,
+                                active.input_transform.source.bottom,
+                                destination.left,
+                                destination.top,
+                                destination.right,
+                                destination.bottom,
+                                move_size_active
+                            )))
                         }
                     }
                 };
@@ -950,6 +1244,60 @@ impl ProductRuntimeController {
         })
     }
 
+    fn save_region_magnifier_screenshot(
+        &mut self,
+        screenshot_dir: &Path,
+    ) -> Result<RuntimeRegionScreenshotsReport, Box<dyn std::error::Error>> {
+        fs::create_dir_all(screenshot_dir)?;
+        let items = if self.region_magnifiers.is_empty() {
+            self.region_magnifier_configs.clone()
+        } else {
+            self.region_magnifiers
+                .iter()
+                .map(|active| (active.id.clone(), active.config))
+                .collect::<Vec<_>>()
+        };
+        if items.is_empty() {
+            return Err("No selected-area zoom region is configured. Add a region first.".into());
+        }
+
+        let was_active = !self.region_magnifiers.is_empty();
+        if was_active {
+            for active in &mut self.region_magnifiers {
+                active.window.hide();
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        }
+
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let mut reports = Vec::new();
+        for (index, (id, config)) in items.into_iter().enumerate() {
+            let safe_id = sanitize_filename_component(&id);
+            let path = screenshot_dir.join(format!(
+                "dodbogi-region-magnifier-{safe_id}-{timestamp_ms}-{index}.png"
+            ));
+            let report: RegionMagnifierScreenshotReport =
+                dodbogi_win32::save_region_magnifier_screenshot(&path, config)
+                    .map_err(|error| format!("{error:?}"))?;
+            reports.push(RuntimeRegionScreenshotReport {
+                path: report.path,
+                output_width: report.output_width,
+                output_height: report.output_height,
+            });
+        }
+
+        if was_active {
+            for active in &mut self.region_magnifiers {
+                let _ = active.window.update(active.config);
+            }
+        }
+
+        Ok(RuntimeRegionScreenshotsReport { reports })
+    }
+
     fn forward_overlay_input(
         &mut self,
         overlay_hwnd: isize,
@@ -990,6 +1338,62 @@ impl ProductRuntimeController {
             detail: delivered.detail,
         }))
     }
+}
+
+fn sync_region_magnifier_order_for_settings(
+    controller: &mut ProductRuntimeController,
+    settings_window: &Option<settings_ui::SettingsUiWindow>,
+) {
+    controller.apply_region_magnifier_z_order_policy();
+    if let Some(window) = settings_window.as_ref() {
+        if window.is_visible() {
+            window.raise_above_overlays();
+            controller.apply_region_magnifier_z_order_policy();
+        }
+    }
+}
+
+fn persist_region_magnifier_state_changes(
+    paths: &RuntimePaths,
+    changes: &[RegionMagnifierStateChange],
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    if changes.is_empty() {
+        return Ok(None);
+    }
+    let mut settings = load_settings_from_path(&paths.settings_file)?;
+    let mut changed_count = 0usize;
+    {
+        let profile = active_runtime_profile_mut(&mut settings);
+        profile.normalize_region_magnifier_settings();
+        for change in changes {
+            if let Some(region) = profile
+                .region_magnifier_regions
+                .iter_mut()
+                .find(|region| region.id == change.id)
+            {
+                if region.output_x != change.output_x
+                    || region.output_y != change.output_y
+                    || !region.output_position_set
+                    || region.scale_percent != change.scale_percent
+                {
+                    region.output_position_set = true;
+                    region.output_x = change.output_x;
+                    region.output_y = change.output_y;
+                    region.scale_percent = change.scale_percent.clamp(50, 1000);
+                    changed_count += 1;
+                }
+            }
+        }
+        profile.sync_region_magnifier_legacy_fields();
+    }
+    if changed_count == 0 {
+        return Ok(None);
+    }
+    save_settings_to_path(&settings, &paths.settings_file)?;
+    let _ = settings_ui::refresh_from_settings_file(paths);
+    Ok(Some(format!(
+        "region_magnifier_state_saved changed={changed_count}"
+    )))
 }
 
 fn handle_runtime_message(
@@ -1116,6 +1520,7 @@ fn handle_runtime_message(
                 Ok(window) => {
                     runtime_println!(runtime_output, "Settings window: hwnd={}", window.hwnd());
                     *settings_window = Some(window);
+                    sync_region_magnifier_order_for_settings(controller, settings_window);
                 }
                 Err(error) => {
                     runtime_println!(runtime_output, "Settings window failed: {error}");
@@ -1197,6 +1602,151 @@ fn handle_runtime_message(
             Ok(false)
         }
         ShellMessage::Hotkey { id: 6, .. } => {
+            let settings = load_settings_from_path(&paths.settings_file)?;
+            let profile = active_runtime_profile(&settings);
+            match controller.toggle_region_magnifier(profile) {
+                Ok(Some(detail)) => {
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                    sync_region_magnifier_order_for_settings(controller, settings_window);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    let detail = format!("region_magnifier_toggle_error={error}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                    dodbogi_win32::show_user_message("Dodbogi", &error.to_string());
+                }
+            }
+            Ok(false)
+        }
+        ShellMessage::Hotkey { id: 7, .. } => {
+            let settings = load_settings_from_path(&paths.settings_file)?;
+            controller.apply_region_magnifier_profile(active_runtime_profile(&settings));
+            let screenshot_dir = resolve_user_screenshot_dir(&settings.screenshots.region_dir);
+            match controller.save_region_magnifier_screenshot(&screenshot_dir) {
+                Ok(report) => {
+                    sync_region_magnifier_order_for_settings(controller, settings_window);
+                    let first_path = report
+                        .reports
+                        .first()
+                        .map(|item| item.path.display().to_string())
+                        .unwrap_or_else(|| "(none)".to_string());
+                    let first_size = report
+                        .reports
+                        .first()
+                        .map(|item| format!("{}x{}", item.output_width, item.output_height))
+                        .unwrap_or_else(|| "0x0".to_string());
+                    append_log_line(
+                        &paths.log_file,
+                        &format!(
+                            "region_magnifier_screenshot_saved count={} first_path={} first_size={}",
+                            report.reports.len(),
+                            first_path,
+                            first_size
+                        ),
+                    )?;
+                    runtime_println!(
+                        runtime_output,
+                        "Region magnifier screenshots saved: {} file(s), first: {} ({})",
+                        report.reports.len(),
+                        first_path,
+                        first_size
+                    );
+                }
+                Err(error) => {
+                    let detail = format!("region_magnifier_screenshot_error={error}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                    dodbogi_win32::show_user_message("Dodbogi", &error.to_string());
+                }
+            }
+            Ok(false)
+        }
+        ShellMessage::Hotkey { id: 8, .. } => {
+            match dodbogi_win32::select_screen_region() {
+                Ok(Some(selection)) => {
+                    let mut settings = load_settings_from_path(&paths.settings_file)?;
+                    {
+                        let profile = active_runtime_profile_mut(&mut settings);
+                        profile.normalize_region_magnifier_settings();
+                        let id = profile.next_region_magnifier_area_id();
+                        profile
+                            .region_magnifier_regions
+                            .push(RegionMagnifierArea::new(
+                                id,
+                                selection.rect.left,
+                                selection.rect.top,
+                                selection.rect.width().max(1) as u32,
+                                selection.rect.height().max(1) as u32,
+                                profile.region_magnifier_scale_percent,
+                            ));
+                        profile.sync_region_magnifier_legacy_fields();
+                    }
+                    save_settings_to_path(&settings, &paths.settings_file)?;
+                    let _ = settings_ui::refresh_from_settings_file(paths);
+                    if controller.is_region_magnifier_active() {
+                        let _ = controller
+                            .restart_region_magnifier_if_active(active_runtime_profile(&settings));
+                        sync_region_magnifier_order_for_settings(controller, settings_window);
+                    } else {
+                        controller
+                            .apply_region_magnifier_profile(active_runtime_profile(&settings));
+                    }
+                    let detail = format!(
+                        "region_magnifier_selected rect={},{},{},{}",
+                        selection.rect.left,
+                        selection.rect.top,
+                        selection.rect.right,
+                        selection.rect.bottom
+                    );
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+                Ok(None) => {
+                    append_log_line(&paths.log_file, "region_magnifier_select_canceled")?;
+                    runtime_println!(runtime_output, "Region selection canceled.");
+                }
+                Err(error) => {
+                    let detail = format!("region_magnifier_select_error={error:?}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
+                }
+            }
+            Ok(false)
+        }
+        ShellMessage::Hotkey { id: 12, .. } => {
+            let mut settings = load_settings_from_path(&paths.settings_file)?;
+            let removed = {
+                let profile = active_runtime_profile_mut(&mut settings);
+                profile.normalize_region_magnifier_settings();
+                let removed = profile.region_magnifier_regions.pop();
+                if removed.is_some() {
+                    profile.sync_region_magnifier_legacy_fields();
+                }
+                removed
+            };
+            if let Some(area) = removed {
+                save_settings_to_path(&settings, &paths.settings_file)?;
+                let _ = settings_ui::refresh_from_settings_file(paths);
+                if controller.is_region_magnifier_active() {
+                    let _ = controller
+                        .restart_region_magnifier_if_active(active_runtime_profile(&settings));
+                    sync_region_magnifier_order_for_settings(controller, settings_window);
+                } else {
+                    controller.apply_region_magnifier_profile(active_runtime_profile(&settings));
+                }
+                let detail = format!("region_magnifier_deleted_latest id={}", area.id);
+                append_log_line(&paths.log_file, &detail)?;
+                runtime_println!(runtime_output, "{detail}");
+            } else {
+                let detail = "region_magnifier_delete_ignored_empty".to_string();
+                append_log_line(&paths.log_file, &detail)?;
+                runtime_println!(runtime_output, "{detail}");
+            }
+            Ok(false)
+        }
+        ShellMessage::Hotkey { id: 9, .. } => {
             let mut settings = load_settings_from_path(&paths.settings_file)?;
             let enabled = {
                 let profile = active_runtime_profile_mut(&mut settings);
@@ -1224,7 +1774,7 @@ fn handle_runtime_message(
             runtime_println!(runtime_output, "{detail}");
             Ok(false)
         }
-        ShellMessage::Hotkey { id: 7, .. } => {
+        ShellMessage::Hotkey { id: 10, .. } => {
             match dodbogi_win32::current_pointer_web_color()
                 .and_then(|color| dodbogi_win32::copy_text_to_clipboard(&color).map(|_| color))
             {
@@ -1241,7 +1791,7 @@ fn handle_runtime_message(
             }
             Ok(false)
         }
-        ShellMessage::Hotkey { id: 8, .. } => {
+        ShellMessage::Hotkey { id: 11, .. } => {
             let mut settings = load_settings_from_path(&paths.settings_file)?;
             let enabled = {
                 let profile = active_runtime_profile_mut(&mut settings);
@@ -1277,6 +1827,16 @@ fn handle_runtime_message(
             screen_x,
             screen_y,
         } => {
+            if matches!(kind, InputEventKind::MouseButtonUp(MouseButton::Left))
+                && (settings_ui::activate_owner_button_fallback(hwnd)
+                    || settings_ui::activate_owner_button_at_screen_point(screen_x, screen_y))
+            {
+                append_log_line(
+                    &paths.log_file,
+                    &format!("settings_owner_button_fallback_clicked hwnd={hwnd}"),
+                )?;
+                return Ok(false);
+            }
             if let Some(report) =
                 controller.forward_overlay_input(hwnd, kind, screen_x, screen_y)?
             {
@@ -1488,7 +2048,34 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 settings_ui::SettingsUiEvent::ProfileChanged => {
                     let settings = load_settings_from_path(&paths.settings_file)?;
+                    system_hotkeys.replace_from_settings(&settings);
+                    append_log_line(
+                        &paths.log_file,
+                        &format!(
+                            "settings_ui_profile_hotkeys_applied registered={} failed={}",
+                            system_hotkeys.report().registered_count(),
+                            system_hotkeys.report().failed_count()
+                        ),
+                    )?;
                     controller.apply_pointer_magnifier_profile(active_runtime_profile(&settings));
+                    match controller
+                        .restart_region_magnifier_if_active(active_runtime_profile(&settings))
+                    {
+                        Ok(Some(detail)) => {
+                            append_log_line(&paths.log_file, &detail)?;
+                            runtime_println!(runtime_output, "{detail}");
+                            sync_region_magnifier_order_for_settings(
+                                &mut controller,
+                                &settings_window,
+                            );
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            let detail = format!("settings_ui_region_restart_error={error}");
+                            append_log_line(&paths.log_file, &detail)?;
+                            runtime_println!(runtime_output, "{detail}");
+                        }
+                    }
                     if let Some(stop) = controller.stop_with_reason(StopReason::SettingsChanged) {
                         let detail = format!(
                             "settings_ui_profile_change_stopped_active_scaling source={} presented_frames={} reason={:?}",
@@ -1526,6 +2113,7 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 settings_ui::SettingsUiEvent::WindowHiddenToTray => {
                     append_log_line(&paths.log_file, "settings_window_hidden_to_tray")?;
+                    controller.apply_region_magnifier_z_order_policy();
                 }
                 settings_ui::SettingsUiEvent::WindowCloseRequested => {
                     append_log_line(&paths.log_file, "settings_window_close_requested_exit")?;
@@ -1546,6 +2134,38 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                         format!("runtime_recoverable_error phase=pointer_magnifier detail={error}");
                     let _ = append_log_line(&paths.log_file, &detail);
                     runtime_println!(runtime_output, "{detail}");
+                }
+            }
+        }
+        let region_magnifier_active = controller.is_region_magnifier_active();
+        if region_magnifier_active {
+            match controller.update_region_magnifier() {
+                Ok(changes) => match persist_region_magnifier_state_changes(&paths, &changes) {
+                    Ok(Some(detail)) => {
+                        let _ = append_log_line(&paths.log_file, &detail);
+                        runtime_println!(runtime_output, "{detail}");
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        if Instant::now() >= next_recoverable_error_log {
+                            next_recoverable_error_log = Instant::now() + Duration::from_secs(1);
+                            let detail = format!(
+                                "runtime_recoverable_error phase=region_magnifier_save detail={error}"
+                            );
+                            let _ = append_log_line(&paths.log_file, &detail);
+                            runtime_println!(runtime_output, "{detail}");
+                        }
+                    }
+                },
+                Err(error) => {
+                    if Instant::now() >= next_recoverable_error_log {
+                        next_recoverable_error_log = Instant::now() + Duration::from_secs(1);
+                        let detail = format!(
+                            "runtime_recoverable_error phase=region_magnifier detail={error}"
+                        );
+                        let _ = append_log_line(&paths.log_file, &detail);
+                        runtime_println!(runtime_output, "{detail}");
+                    }
                 }
             }
         }
@@ -1666,17 +2286,36 @@ fn run_product_runtime() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            std::thread::sleep(Duration::from_millis(if pointer_magnifier_active {
-                16
-            } else {
-                50
-            }));
+            std::thread::sleep(Duration::from_millis(
+                if pointer_magnifier_active || region_magnifier_active {
+                    16
+                } else {
+                    50
+                },
+            ));
         }
     }
 
-    let _ = controller.stop();
+    append_log_line(&paths.log_file, "runtime_shutdown_begin")?;
+    if let Some(window) = settings_window.as_mut() {
+        window.destroy();
+        append_log_line(&paths.log_file, "settings_window_destroyed_on_shutdown")?;
+    }
+    let _ = dodbogi_win32::drain_shell_messages(64);
+    if let Some(stop) = controller.stop() {
+        append_log_line(
+            &paths.log_file,
+            &format!(
+                "runtime_shutdown_stop source={} presented_frames={} reason={:?}",
+                stop.source_hwnd, stop.presented_frames, stop.reason
+            ),
+        )?;
+    }
+    append_log_line(&paths.log_file, "runtime_shutdown_drop_tray")?;
     drop(system_tray);
+    append_log_line(&paths.log_file, "runtime_shutdown_drop_hotkeys")?;
     drop(system_hotkeys);
+    append_log_line(&paths.log_file, "runtime_shutdown_complete")?;
     Ok(())
 }
 
@@ -2269,7 +2908,10 @@ fn source_move_smoke_g014() -> Result<(), Box<dyn std::error::Error>> {
             moved_source.rect.right,
             moved_source.rect.bottom,
             layout_event,
-            frame.as_ref().map(|report| report.presented_frames).unwrap_or(0)
+            frame
+                .as_ref()
+                .map(|report| report.presented_frames)
+                .unwrap_or(0)
         ),
     )?;
 
@@ -2372,7 +3014,10 @@ fn source_resize_smoke_g016() -> Result<(), Box<dyn std::error::Error>> {
             resized_source.rect.bottom,
             resize_event,
             settle_event,
-            frame.as_ref().map(|report| report.presented_frames).unwrap_or(0)
+            frame
+                .as_ref()
+                .map(|report| report.presented_frames)
+                .unwrap_or(0)
         ),
     )?;
 
@@ -2789,55 +3434,554 @@ fn product_runtime_smoke_g012(mode: ParityGateMode) -> Result<(), Box<dyn std::e
     fs::create_dir_all(&scenario_artifact_dir)?;
 
     let rows = vec![
-        row(&scenario_artifact_dir, "P0-NOTEPAD-START-001", "P0", "launch,lifecycle", &reference_evidence, ScenarioResult::Partial, &artifact_bundle, "exact", "Foreground-window start path is product-proven; app-specific Notepad visual observation remains a human parity confirmation.")?, 
-        row(&scenario_artifact_dir, "P0-HOTKEY-STOP-001", "P0", "launch,lifecycle,hotkey", &reference_evidence, ScenarioResult::Partial, &shell_artifacts, "exact", "Registered system hotkeys and controller stop path are proven; global hotkey injection was not run because an unrelated user Magpie process is active.")?, 
-        row(&scenario_artifact_dir, "P0-TERMINAL-START-001", "P0", "launch,lifecycle", &reference_evidence, ScenarioResult::Partial, &settings_artifacts, "exact", "Terminal profile matching is proven; app-specific Terminal visual observation remains a human parity confirmation.")?, 
-        row(&scenario_artifact_dir, "P0-NOACTIVATE-OVERLAY-001", "P0", "window,z-order,focus", &reference_evidence, ScenarioResult::Pass, &shell_artifacts, "exact", "Overlay style contract has no-activate/topmost/tool-window and no taskbar/Alt+Tab entry.")?, 
-        row(&scenario_artifact_dir, "P0-DESTINATION-SIZE-2X-001", "P0", "geometry,rendering", &reference_evidence, ScenarioResult::Pass, &geometry_artifacts, "exact", "Windowed 2x destination is computed in physical pixels and used by the WGC effect swapchain.")?, 
-        row(&scenario_artifact_dir, "P0-SOURCE-CLOSE-001", "P0", "lifecycle", &reference_evidence, ScenarioResult::Pass, &artifact_bundle, "exact", "Core lifecycle policy stops on source close.")?, 
-        row(&scenario_artifact_dir, "P0-SOURCE-MINIMIZE-001", "P0", "lifecycle", &reference_evidence, ScenarioResult::Pass, &artifact_bundle, "exact", "Core lifecycle policy stops on source minimize.")?, 
-        row(&scenario_artifact_dir, "P1-FULLSCREEN-001", "P1", "geometry,window", &reference_evidence, ScenarioResult::Pass, &geometry_artifacts, "exact", "Fullscreen closest-monitor destination is computed from live monitor geometry.")?, 
-        row(&scenario_artifact_dir, "P1-WINDOWED-001", "P1", "geometry,window", &reference_evidence, ScenarioResult::Pass, &geometry_artifacts, "exact", "Windowed destination is computed and used by product runtime.")?, 
-        row(&scenario_artifact_dir, "P1-SOURCE-MOVE-001", "P1", "lifecycle,geometry", &reference_evidence, ScenarioResult::Partial, &geometry_artifacts, "exact", "Geometry recomputation primitives are proven; live move-follow observation remains manual.")?, 
-        row(&scenario_artifact_dir, "P1-SOURCE-RESIZE-001", "P1", "lifecycle,geometry", &reference_evidence, ScenarioResult::Partial, &geometry_artifacts, "exact", "Geometry recomputation primitives are proven; live resize-follow observation remains manual.")?, 
-        row(&scenario_artifact_dir, "P1-SCALED-MOVE-001", "P1", "window,geometry", &reference_evidence, ScenarioResult::Partial, &geometry_artifacts, "exact", "Overlay layout is applied by HWND; drag interaction observation remains manual.")?, 
-        row(&scenario_artifact_dir, "P1-SCALED-RESIZE-001", "P1", "window,geometry", &reference_evidence, ScenarioResult::Partial, &geometry_artifacts, "exact", "Overlay layout can be resized by policy; live user resize observation remains manual.")?, 
-        row(&scenario_artifact_dir, "P1-FOCUS-LOSS-001", "P1", "focus,input", &reference_evidence, ScenarioResult::Pass, &shell_artifacts, "exact", "No-activate overlay and focus-loss policy are implemented.")?, 
-        row(&scenario_artifact_dir, "P1-POPUP-MENU-001", "P1", "window,input", &reference_evidence, ScenarioResult::Pass, &input_artifacts, "exact", "Context-menu input maps to source coordinates and right-button delivery is represented.")?, 
-        row(&scenario_artifact_dir, "P1-ALTTAB-TASKBAR-001", "P1", "shell,window", &reference_evidence, ScenarioResult::Pass, &shell_artifacts, "exact", "Overlay is tool/no-activate and excluded from taskbar/Alt+Tab contract.")?, 
-        row(&scenario_artifact_dir, "P2-CLICK-001", "P2", "input", &reference_evidence, ScenarioResult::Pass, &input_artifacts, "exact", "Controlled HWND observed SendInput left down/up.")?, 
-        row(&scenario_artifact_dir, "P2-DOUBLECLICK-001", "P2", "input", &reference_evidence, ScenarioResult::Pass, &input_artifacts, "exact", "Double-click maps through overlay-to-source transform and has a SendInput sequence.")?, 
-        row(&scenario_artifact_dir, "P2-DRAG-001", "P2", "input", &reference_evidence, ScenarioResult::Pass, &input_artifacts, "exact", "Drag phases map through overlay-to-source transform and have SendInput sequences.")?, 
-        row(&scenario_artifact_dir, "P2-WHEEL-001", "P2", "input", &reference_evidence, ScenarioResult::Pass, &input_artifacts, "exact", "Wheel maps through overlay-to-source transform and has a SendInput sequence.")?, 
-        row(&scenario_artifact_dir, "P2-TEXT-SELECTION-001", "P2", "input", &reference_evidence, ScenarioResult::Pass, &input_artifacts, "exact", "Text-selection phases map and use mouse down/move/up sequences.")?, 
-        row(&scenario_artifact_dir, "P2-CONTEXT-MENU-001", "P2", "input,window", &reference_evidence, ScenarioResult::Pass, &input_artifacts, "exact", "Context-menu maps and uses right-click SendInput sequence.")?, 
-        row(&scenario_artifact_dir, "P2-KEYBOARD-FOCUS-001", "P2", "input,focus", &reference_evidence, ScenarioResult::Partial, &input_artifacts, "exact", "Keyboard focus request is implemented; Windows foreground policy may deny arbitrary targets.")?, 
-        row(&scenario_artifact_dir, "P2-CURSOR-DISPLAY-001", "P2", "cursor", &reference_evidence, ScenarioResult::Pass, &input_artifacts, "visual-equivalent", "Cursor overlay policy derives visibility/draw/scale from the active transform.")?, 
-        row(&scenario_artifact_dir, "P3-WGC-001", "P3", "capture", &reference_evidence, ScenarioResult::Pass, &effect_artifacts, "exact", "WGC produces captured surfaces consumed by every clean-room effect in this smoke.")?, 
-        row(&scenario_artifact_dir, "P3-DDA-001", "P3", "capture", &reference_evidence, backend_status(CaptureBackendKind::DesktopDuplication), &capture_artifacts, "exact", format!("Desktop Duplication classified by probe; runtime remains WGC-first. {}", backend_note(CaptureBackendKind::DesktopDuplication)))?, 
-        row(&scenario_artifact_dir, "P3-GDI-001", "P3", "capture", &reference_evidence, backend_status(CaptureBackendKind::Gdi), &capture_artifacts, "exact", format!("GDI classified by BitBlt probe; runtime remains WGC-first. {}", backend_note(CaptureBackendKind::Gdi)))?, 
-        row(&scenario_artifact_dir, "P3-DWM-001", "P3", "capture", &reference_evidence, ScenarioResult::Partial, &capture_artifacts, "exact", format!("Public DWM frame-bounds metadata is available, but practical frame capture support or an approved unsupported classification remains unresolved. {}", backend_note(CaptureBackendKind::DwmSharedSurface)))?, 
-        row(&scenario_artifact_dir, "P3-TITLEBAR-001", "P3", "capture,window", &reference_evidence, ScenarioResult::Pass, &capture_artifacts, "exact", "Include-title-bar and client-only capture regions are computed from live HWND rectangles.")?, 
-        row(&scenario_artifact_dir, "P4-DPI-100-001", "P4", "dpi,geometry", &reference_evidence, ScenarioResult::Pass, &geometry_artifacts, "exact", "Live monitor DPI is recorded and physical-pixel geometry is used.")?, 
-        row(&scenario_artifact_dir, "P4-DPI-125-001", "P4", "dpi,geometry", &reference_evidence, ScenarioResult::Partial, &geometry_artifacts, "exact", "125% DPI math is covered by unit/stage evidence; current live monitor may not be 125%.")?, 
-        row(&scenario_artifact_dir, "P4-DPI-150-001", "P4", "dpi,geometry", &reference_evidence, ScenarioResult::Partial, &geometry_artifacts, "exact", "150% DPI math is covered by unit/stage evidence; current live monitor may not be 150%.")?, 
-        row(&scenario_artifact_dir, "P4-MIXED-DPI-001", "P4", "dpi,monitor", &reference_evidence, ScenarioResult::Partial, &geometry_artifacts, "exact", "Mixed-DPI algorithm is covered; hardware layout may not contain mixed-DPI monitors.")?, 
-        row(&scenario_artifact_dir, "P4-PARTLY-OFFSCREEN-001", "P4", "geometry,monitor", &reference_evidence, ScenarioResult::Partial, &geometry_artifacts, "exact", "Partly offscreen handling is covered by geometry algorithms; live offscreen source not forced in smoke.")?, 
-        row(&scenario_artifact_dir, "P4-CLOSEST-MONITOR-001", "P4", "monitor", &reference_evidence, ScenarioResult::Pass, &geometry_artifacts, "exact", "Closest monitor selection is computed from live monitor geometry.")?, 
-        row(&scenario_artifact_dir, "P4-INTERSECTED-MONITOR-001", "P4", "monitor", &reference_evidence, ScenarioResult::Pass, &geometry_artifacts, "exact", "Intersected monitor selection is computed from live monitor geometry.")?, 
-        row(&scenario_artifact_dir, "P4-ALL-MONITORS-001", "P4", "monitor", &reference_evidence, ScenarioResult::Pass, &geometry_artifacts, "exact", "All-monitors destination is computed from live monitor geometry.")?, 
-        row(&scenario_artifact_dir, "P5-DEFAULT-PROFILE-001", "P5", "profile,settings", &reference_evidence, ScenarioResult::Pass, &settings_artifacts, "exact", "Default profile resolves for unmatched apps.")?, 
-        row(&scenario_artifact_dir, "P5-PERAPP-PROFILE-001", "P5", "profile,settings", &reference_evidence, ScenarioResult::Pass, &settings_artifacts, "exact", "Notepad and Terminal per-app matching resolve with scores.")?, 
-        row(&scenario_artifact_dir, "P5-AUTOSCALE-001", "P5", "profile,lifecycle", &reference_evidence, ScenarioResult::Pass, &settings_artifacts, "exact", "Default-profile auto-scale setting is persisted and product idle loop starts foreground scaling when enabled.")?, 
-        row(&scenario_artifact_dir, "P5-HOTKEY-SETTINGS-001", "P5", "settings,hotkey", &reference_evidence, ScenarioResult::Pass, &shell_artifacts, "exact", "Default hotkey settings and system registration report are generated.")?, 
-        row(&scenario_artifact_dir, "P5-TRAY-MENU-001", "P5", "tray,shell", &reference_evidence, ScenarioResult::Pass, &shell_artifacts, "exact", "Tray menu contract contains start/stop, profile, screenshot, settings, diagnostics, and exit items.")?, 
-        row(&scenario_artifact_dir, "P5-SCREENSHOT-001", "P5", "screenshot,diagnostics", &reference_evidence, ScenarioResult::Pass, &artifact_bundle, "exact", "Screenshot artifact path and active WGC/effect swapchain readback proof are recorded.")?, 
-        row(&scenario_artifact_dir, "P5-LOGGING-001", "P5", "diagnostics", &reference_evidence, ScenarioResult::Pass, &settings_artifacts, "exact", "Diagnostics snapshot and runtime log are written.")?, 
-        row(&scenario_artifact_dir, "P6-EFFECTS-COVERAGE-001", "P6", "effects", &reference_evidence, ScenarioResult::Pass, &effect_artifacts, "visual-equivalent", "Every built-in clean-room effect compiled and presented at least one WGC frame.")?, 
-        row(&scenario_artifact_dir, "P6-EFFECT-PARAMS-001", "P6", "effects,settings", &reference_evidence, ScenarioResult::Pass, &effect_artifacts, "exact", "Effect descriptors and profile chains validate parameters without Magpie source reuse.")?, 
-        row(&scenario_artifact_dir, "P6-BASELINE-RENDERING-001", "P6", "rendering", &reference_evidence, ScenarioResult::Pass, &effect_artifacts, "visual-equivalent", "WGC texture path renders through all effect shaders instead of clear-only presentation.")?, 
-        row(&scenario_artifact_dir, "P6-STATS-OVERLAY-001", "P6", "rendering,diagnostics", &reference_evidence, ScenarioResult::Pass, &settings_artifacts, "exact", "Stats overlay formatting and diagnostics setting are enabled in the smoke profile.")?, 
-        row(&scenario_artifact_dir, "P6-VISUAL-DIFF-001", "P6", "effects,rendering", &reference_evidence, ScenarioResult::Partial, &effect_artifacts, "visual-equivalent", "Runtime effect presentation and fixture screenshot are captured; side-by-side Magpie pixel diff still requires manual screen capture.")?, 
+        row(
+            &scenario_artifact_dir,
+            "P0-NOTEPAD-START-001",
+            "P0",
+            "launch,lifecycle",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &artifact_bundle,
+            "exact",
+            "Foreground-window start path is product-proven; app-specific Notepad visual observation remains a human parity confirmation.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P0-HOTKEY-STOP-001",
+            "P0",
+            "launch,lifecycle,hotkey",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &shell_artifacts,
+            "exact",
+            "Registered system hotkeys and controller stop path are proven; global hotkey injection was not run because an unrelated user Magpie process is active.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P0-TERMINAL-START-001",
+            "P0",
+            "launch,lifecycle",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &settings_artifacts,
+            "exact",
+            "Terminal profile matching is proven; app-specific Terminal visual observation remains a human parity confirmation.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P0-NOACTIVATE-OVERLAY-001",
+            "P0",
+            "window,z-order,focus",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &shell_artifacts,
+            "exact",
+            "Overlay style contract has no-activate/topmost/tool-window and no taskbar/Alt+Tab entry.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P0-DESTINATION-SIZE-2X-001",
+            "P0",
+            "geometry,rendering",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &geometry_artifacts,
+            "exact",
+            "Windowed 2x destination is computed in physical pixels and used by the WGC effect swapchain.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P0-SOURCE-CLOSE-001",
+            "P0",
+            "lifecycle",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &artifact_bundle,
+            "exact",
+            "Core lifecycle policy stops on source close.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P0-SOURCE-MINIMIZE-001",
+            "P0",
+            "lifecycle",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &artifact_bundle,
+            "exact",
+            "Core lifecycle policy stops on source minimize.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-FULLSCREEN-001",
+            "P1",
+            "geometry,window",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &geometry_artifacts,
+            "exact",
+            "Fullscreen closest-monitor destination is computed from live monitor geometry.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-WINDOWED-001",
+            "P1",
+            "geometry,window",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &geometry_artifacts,
+            "exact",
+            "Windowed destination is computed and used by product runtime.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-SOURCE-MOVE-001",
+            "P1",
+            "lifecycle,geometry",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &geometry_artifacts,
+            "exact",
+            "Geometry recomputation primitives are proven; live move-follow observation remains manual.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-SOURCE-RESIZE-001",
+            "P1",
+            "lifecycle,geometry",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &geometry_artifacts,
+            "exact",
+            "Geometry recomputation primitives are proven; live resize-follow observation remains manual.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-SCALED-MOVE-001",
+            "P1",
+            "window,geometry",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &geometry_artifacts,
+            "exact",
+            "Overlay layout is applied by HWND; drag interaction observation remains manual.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-SCALED-RESIZE-001",
+            "P1",
+            "window,geometry",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &geometry_artifacts,
+            "exact",
+            "Overlay layout can be resized by policy; live user resize observation remains manual.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-FOCUS-LOSS-001",
+            "P1",
+            "focus,input",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &shell_artifacts,
+            "exact",
+            "No-activate overlay and focus-loss policy are implemented.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-POPUP-MENU-001",
+            "P1",
+            "window,input",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &input_artifacts,
+            "exact",
+            "Context-menu input maps to source coordinates and right-button delivery is represented.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P1-ALTTAB-TASKBAR-001",
+            "P1",
+            "shell,window",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &shell_artifacts,
+            "exact",
+            "Overlay is tool/no-activate and excluded from taskbar/Alt+Tab contract.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P2-CLICK-001",
+            "P2",
+            "input",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &input_artifacts,
+            "exact",
+            "Controlled HWND observed SendInput left down/up.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P2-DOUBLECLICK-001",
+            "P2",
+            "input",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &input_artifacts,
+            "exact",
+            "Double-click maps through overlay-to-source transform and has a SendInput sequence.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P2-DRAG-001",
+            "P2",
+            "input",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &input_artifacts,
+            "exact",
+            "Drag phases map through overlay-to-source transform and have SendInput sequences.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P2-WHEEL-001",
+            "P2",
+            "input",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &input_artifacts,
+            "exact",
+            "Wheel maps through overlay-to-source transform and has a SendInput sequence.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P2-TEXT-SELECTION-001",
+            "P2",
+            "input",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &input_artifacts,
+            "exact",
+            "Text-selection phases map and use mouse down/move/up sequences.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P2-CONTEXT-MENU-001",
+            "P2",
+            "input,window",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &input_artifacts,
+            "exact",
+            "Context-menu maps and uses right-click SendInput sequence.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P2-KEYBOARD-FOCUS-001",
+            "P2",
+            "input,focus",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &input_artifacts,
+            "exact",
+            "Keyboard focus request is implemented; Windows foreground policy may deny arbitrary targets.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P2-CURSOR-DISPLAY-001",
+            "P2",
+            "cursor",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &input_artifacts,
+            "visual-equivalent",
+            "Cursor overlay policy derives visibility/draw/scale from the active transform.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P3-WGC-001",
+            "P3",
+            "capture",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &effect_artifacts,
+            "exact",
+            "WGC produces captured surfaces consumed by every clean-room effect in this smoke.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P3-DDA-001",
+            "P3",
+            "capture",
+            &reference_evidence,
+            backend_status(CaptureBackendKind::DesktopDuplication),
+            &capture_artifacts,
+            "exact",
+            format!(
+                "Desktop Duplication classified by probe; runtime remains WGC-first. {}",
+                backend_note(CaptureBackendKind::DesktopDuplication)
+            ),
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P3-GDI-001",
+            "P3",
+            "capture",
+            &reference_evidence,
+            backend_status(CaptureBackendKind::Gdi),
+            &capture_artifacts,
+            "exact",
+            format!(
+                "GDI classified by BitBlt probe; runtime remains WGC-first. {}",
+                backend_note(CaptureBackendKind::Gdi)
+            ),
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P3-DWM-001",
+            "P3",
+            "capture",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &capture_artifacts,
+            "exact",
+            format!(
+                "Public DWM frame-bounds metadata is available, but practical frame capture support or an approved unsupported classification remains unresolved. {}",
+                backend_note(CaptureBackendKind::DwmSharedSurface)
+            ),
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P3-TITLEBAR-001",
+            "P3",
+            "capture,window",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &capture_artifacts,
+            "exact",
+            "Include-title-bar and client-only capture regions are computed from live HWND rectangles.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P4-DPI-100-001",
+            "P4",
+            "dpi,geometry",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &geometry_artifacts,
+            "exact",
+            "Live monitor DPI is recorded and physical-pixel geometry is used.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P4-DPI-125-001",
+            "P4",
+            "dpi,geometry",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &geometry_artifacts,
+            "exact",
+            "125% DPI math is covered by unit/stage evidence; current live monitor may not be 125%.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P4-DPI-150-001",
+            "P4",
+            "dpi,geometry",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &geometry_artifacts,
+            "exact",
+            "150% DPI math is covered by unit/stage evidence; current live monitor may not be 150%.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P4-MIXED-DPI-001",
+            "P4",
+            "dpi,monitor",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &geometry_artifacts,
+            "exact",
+            "Mixed-DPI algorithm is covered; hardware layout may not contain mixed-DPI monitors.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P4-PARTLY-OFFSCREEN-001",
+            "P4",
+            "geometry,monitor",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &geometry_artifacts,
+            "exact",
+            "Partly offscreen handling is covered by geometry algorithms; live offscreen source not forced in smoke.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P4-CLOSEST-MONITOR-001",
+            "P4",
+            "monitor",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &geometry_artifacts,
+            "exact",
+            "Closest monitor selection is computed from live monitor geometry.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P4-INTERSECTED-MONITOR-001",
+            "P4",
+            "monitor",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &geometry_artifacts,
+            "exact",
+            "Intersected monitor selection is computed from live monitor geometry.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P4-ALL-MONITORS-001",
+            "P4",
+            "monitor",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &geometry_artifacts,
+            "exact",
+            "All-monitors destination is computed from live monitor geometry.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P5-DEFAULT-PROFILE-001",
+            "P5",
+            "profile,settings",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &settings_artifacts,
+            "exact",
+            "Default profile resolves for unmatched apps.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P5-PERAPP-PROFILE-001",
+            "P5",
+            "profile,settings",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &settings_artifacts,
+            "exact",
+            "Notepad and Terminal per-app matching resolve with scores.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P5-AUTOSCALE-001",
+            "P5",
+            "profile,lifecycle",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &settings_artifacts,
+            "exact",
+            "Default-profile auto-scale setting is persisted and product idle loop starts foreground scaling when enabled.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P5-HOTKEY-SETTINGS-001",
+            "P5",
+            "settings,hotkey",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &shell_artifacts,
+            "exact",
+            "Default hotkey settings and system registration report are generated.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P5-TRAY-MENU-001",
+            "P5",
+            "tray,shell",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &shell_artifacts,
+            "exact",
+            "Tray menu contract contains start/stop, profile, screenshot, settings, diagnostics, and exit items.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P5-SCREENSHOT-001",
+            "P5",
+            "screenshot,diagnostics",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &artifact_bundle,
+            "exact",
+            "Screenshot artifact path and active WGC/effect swapchain readback proof are recorded.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P5-LOGGING-001",
+            "P5",
+            "diagnostics",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &settings_artifacts,
+            "exact",
+            "Diagnostics snapshot and runtime log are written.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P6-EFFECTS-COVERAGE-001",
+            "P6",
+            "effects",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &effect_artifacts,
+            "visual-equivalent",
+            "Every built-in clean-room effect compiled and presented at least one WGC frame.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P6-EFFECT-PARAMS-001",
+            "P6",
+            "effects,settings",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &effect_artifacts,
+            "exact",
+            "Effect descriptors and profile chains validate parameters without Magpie source reuse.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P6-BASELINE-RENDERING-001",
+            "P6",
+            "rendering",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &effect_artifacts,
+            "visual-equivalent",
+            "WGC texture path renders through all effect shaders instead of clear-only presentation.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P6-STATS-OVERLAY-001",
+            "P6",
+            "rendering,diagnostics",
+            &reference_evidence,
+            ScenarioResult::Pass,
+            &settings_artifacts,
+            "exact",
+            "Stats overlay formatting and diagnostics setting are enabled in the smoke profile.",
+        )?,
+        row(
+            &scenario_artifact_dir,
+            "P6-VISUAL-DIFF-001",
+            "P6",
+            "effects,rendering",
+            &reference_evidence,
+            ScenarioResult::Partial,
+            &effect_artifacts,
+            "visual-equivalent",
+            "Runtime effect presentation and fixture screenshot are captured; side-by-side Magpie pixel diff still requires manual screen capture.",
+        )?,
     ];
     let summary = summarize(&rows);
     fs::write(

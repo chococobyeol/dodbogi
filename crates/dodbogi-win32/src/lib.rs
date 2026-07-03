@@ -4,8 +4,8 @@
 //! any optional WinUI 3 shell fallback.
 
 use dodbogi_core::{
-    AppProfile, CheckStatus, DodbogiSettings, Dpi, MonitorGeometry, PhysicalRect, SourceWindow,
-    StartupCheck, StartupReport, SupportEnvelope, PARITY_TARGET,
+    AppProfile, CheckStatus, DodbogiSettings, Dpi, MonitorGeometry, PhysicalRect,
+    RegionMagnifierArea, SourceWindow, StartupCheck, StartupReport, SupportEnvelope, PARITY_TARGET,
 };
 use dodbogi_input::{InputEventKind, SourceInputEvent};
 
@@ -51,6 +51,10 @@ pub const DEFAULT_FULLSCREEN_HOTKEY: &str = "Ctrl+Alt+A";
 pub const DEFAULT_POINTER_MAGNIFIER_HOTKEY: &str = "Ctrl+Alt+E";
 pub const DEFAULT_WINDOW_SCREENSHOT_HOTKEY: &str = "Shift+Alt+Q";
 pub const DEFAULT_POINTER_SCREENSHOT_HOTKEY: &str = "Shift+Alt+E";
+pub const DEFAULT_REGION_MAGNIFIER_HOTKEY: &str = "Ctrl+Alt+D";
+pub const DEFAULT_REGION_SCREENSHOT_HOTKEY: &str = "Shift+Alt+D";
+pub const DEFAULT_REGION_SELECT_HOTKEY: &str = "Ctrl+Alt+F";
+pub const DEFAULT_REGION_DELETE_HOTKEY: &str = "Ctrl+Alt+Z";
 pub const DEFAULT_POINTER_COLOR_CODE_TOGGLE_HOTKEY: &str = "Ctrl+Alt+C";
 pub const DEFAULT_POINTER_COLOR_CODE_COPY_HOTKEY: &str = "Shift+Alt+C";
 pub const DEFAULT_POINTER_CURSOR_TOGGLE_HOTKEY: &str = "Ctrl+Alt+R";
@@ -84,16 +88,36 @@ pub fn default_hotkeys() -> Vec<HotkeySpec> {
         },
         HotkeySpec {
             id: 6,
+            name: "region-magnifier-toggle",
+            accelerator: DEFAULT_REGION_MAGNIFIER_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 7,
+            name: "region-magnifier-screenshot",
+            accelerator: DEFAULT_REGION_SCREENSHOT_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 8,
+            name: "region-magnifier-select",
+            accelerator: DEFAULT_REGION_SELECT_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 12,
+            name: "region-magnifier-delete",
+            accelerator: DEFAULT_REGION_DELETE_HOTKEY.to_string(),
+        },
+        HotkeySpec {
+            id: 9,
             name: "pointer-color-code-toggle",
             accelerator: DEFAULT_POINTER_COLOR_CODE_TOGGLE_HOTKEY.to_string(),
         },
         HotkeySpec {
-            id: 7,
+            id: 10,
             name: "pointer-color-code-copy",
             accelerator: DEFAULT_POINTER_COLOR_CODE_COPY_HOTKEY.to_string(),
         },
         HotkeySpec {
-            id: 8,
+            id: 11,
             name: "pointer-cursor-toggle",
             accelerator: DEFAULT_POINTER_CURSOR_TOGGLE_HOTKEY.to_string(),
         },
@@ -101,46 +125,67 @@ pub fn default_hotkeys() -> Vec<HotkeySpec> {
 }
 
 pub fn hotkeys_from_settings(settings: &DodbogiSettings) -> Vec<HotkeySpec> {
+    let hotkeys = &settings.profiles.active_profile().hotkeys;
     vec![
         HotkeySpec {
             id: 1,
             name: "windowed-scale-toggle",
-            accelerator: settings.hotkeys.windowed_toggle.clone(),
+            accelerator: hotkeys.windowed_toggle.clone(),
         },
         HotkeySpec {
             id: 2,
             name: "fullscreen-scale-toggle",
-            accelerator: settings.hotkeys.fullscreen_toggle.clone(),
+            accelerator: hotkeys.fullscreen_toggle.clone(),
         },
         HotkeySpec {
             id: 3,
             name: "pointer-magnifier-toggle",
-            accelerator: settings.hotkeys.pointer_magnifier_toggle.clone(),
+            accelerator: hotkeys.pointer_magnifier_toggle.clone(),
         },
         HotkeySpec {
             id: 4,
             name: "window-screenshot",
-            accelerator: settings.hotkeys.screenshot.clone(),
+            accelerator: hotkeys.screenshot.clone(),
         },
         HotkeySpec {
             id: 5,
             name: "pointer-magnifier-screenshot",
-            accelerator: settings.hotkeys.pointer_screenshot.clone(),
+            accelerator: hotkeys.pointer_screenshot.clone(),
         },
         HotkeySpec {
             id: 6,
-            name: "pointer-color-code-toggle",
-            accelerator: settings.hotkeys.pointer_color_code_toggle.clone(),
+            name: "region-magnifier-toggle",
+            accelerator: hotkeys.region_magnifier_toggle.clone(),
         },
         HotkeySpec {
             id: 7,
-            name: "pointer-color-code-copy",
-            accelerator: settings.hotkeys.pointer_color_code_copy.clone(),
+            name: "region-magnifier-screenshot",
+            accelerator: hotkeys.region_screenshot.clone(),
         },
         HotkeySpec {
             id: 8,
+            name: "region-magnifier-select",
+            accelerator: hotkeys.region_select.clone(),
+        },
+        HotkeySpec {
+            id: 12,
+            name: "region-magnifier-delete",
+            accelerator: hotkeys.region_delete.clone(),
+        },
+        HotkeySpec {
+            id: 9,
+            name: "pointer-color-code-toggle",
+            accelerator: hotkeys.pointer_color_code_toggle.clone(),
+        },
+        HotkeySpec {
+            id: 10,
+            name: "pointer-color-code-copy",
+            accelerator: hotkeys.pointer_color_code_copy.clone(),
+        },
+        HotkeySpec {
+            id: 11,
             name: "pointer-cursor-toggle",
-            accelerator: settings.hotkeys.pointer_cursor_toggle.clone(),
+            accelerator: hotkeys.pointer_cursor_toggle.clone(),
         },
     ]
 }
@@ -193,6 +238,104 @@ pub struct PointerMagnifierScreenshotReport {
     pub source_rect: PhysicalRect,
     pub output_width: u32,
     pub output_height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegionMagnifierConfig {
+    pub source_rect: PhysicalRect,
+    pub scale_percent: u32,
+    pub output_position: Option<(i32, i32)>,
+    pub border_visible: bool,
+    pub mouse_passthrough: bool,
+}
+
+impl RegionMagnifierConfig {
+    pub fn from_profile(profile: &AppProfile) -> Option<Self> {
+        profile
+            .region_magnifier_areas()
+            .first()
+            .and_then(|area| Self::from_area(area, profile.region_magnifier_scale_percent))
+    }
+
+    pub fn from_area(area: &RegionMagnifierArea, default_scale_percent: u32) -> Option<Self> {
+        let mut area = area.clone().sanitized();
+        if area.scale_percent == 0 {
+            area.scale_percent = default_scale_percent.clamp(50, 1000);
+        }
+        let source_rect = area.source_rect()?;
+        Some(Self {
+            source_rect,
+            scale_percent: area.scale_percent,
+            output_position: area
+                .output_position_set
+                .then_some((area.output_x, area.output_y)),
+            border_visible: true,
+            mouse_passthrough: false,
+        })
+    }
+
+    pub fn sanitized(self) -> Self {
+        let bounds = PhysicalRect {
+            left: -100_000,
+            top: -100_000,
+            right: 100_000,
+            bottom: 100_000,
+        };
+        let width = self.source_rect.width().max(1).min(5000);
+        let height = self.source_rect.height().max(1).min(5000);
+        let left = self
+            .source_rect
+            .left
+            .clamp(bounds.left, bounds.right - width);
+        let top = self
+            .source_rect
+            .top
+            .clamp(bounds.top, bounds.bottom - height);
+        Self {
+            source_rect: PhysicalRect {
+                left,
+                top,
+                right: left + width,
+                bottom: top + height,
+            },
+            scale_percent: self.scale_percent.clamp(50, 1000),
+            output_position: self
+                .output_position
+                .map(|(x, y)| (x.clamp(-100_000, 100_000), y.clamp(-100_000, 100_000))),
+            border_visible: self.border_visible,
+            mouse_passthrough: self.mouse_passthrough,
+        }
+    }
+
+    pub fn scale_factor(self) -> f32 {
+        self.sanitized().scale_percent as f32 / 100.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionMagnifierUpdateReport {
+    pub source_rect: PhysicalRect,
+    pub destination_rect: PhysicalRect,
+    pub scale_percent: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionMagnifierScreenshotReport {
+    pub path: std::path::PathBuf,
+    pub source_rect: PhysicalRect,
+    pub output_width: u32,
+    pub output_height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegionSelectionReport {
+    pub rect: PhysicalRect,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunningAppSelection {
+    pub executable_name: String,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -460,8 +603,9 @@ mod imp {
         ControlledInputProbeReport, CursorCaptureReport, Dpi, HotkeySpec, InputDeliveryMode,
         InputDeliveryReport, MonitorGeometry, OverlayStyleContract, PhysicalRect,
         PointerMagnifierConfig, PointerMagnifierScreenshotReport, PointerMagnifierUpdateReport,
-        ShellMessage, SourceInputEvent, SourceWindow, SystemHotkeyRegistration, SystemHotkeyReport,
-        TrayMenuItem, Win32Error,
+        RegionMagnifierConfig, RegionMagnifierScreenshotReport, RegionMagnifierUpdateReport,
+        RegionSelectionReport, RunningAppSelection, ShellMessage, SourceInputEvent, SourceWindow,
+        SystemHotkeyRegistration, SystemHotkeyReport, TrayMenuItem, Win32Error,
     };
     use dodbogi_core::DodbogiSettings;
     use dodbogi_input::{
@@ -480,15 +624,15 @@ mod imp {
             Mutex, OnceLock,
         },
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     };
     use windows::{
-        core::{BOOL, PCSTR, PCWSTR},
+        core::{BOOL, PCSTR, PCWSTR, PWSTR},
         Graphics::Capture::GraphicsCaptureItem,
         Win32::{
             Foundation::{
-                GetLastError, COLORREF, HANDLE, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, POINT,
-                RECT, TRUE, WPARAM,
+                CloseHandle, GetLastError, COLORREF, HANDLE, HINSTANCE, HMODULE, HWND, LPARAM,
+                LRESULT, POINT, RECT, TRUE, WPARAM,
             },
             Graphics::{
                 Direct3D::{
@@ -520,7 +664,10 @@ mod imp {
                 DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData},
                 LibraryLoader::{GetModuleHandleW, GetProcAddress},
                 Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE},
-                Threading::GetCurrentProcessId,
+                Threading::{
+                    GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW,
+                    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+                },
                 WinRT::{
                     Graphics::Capture::IGraphicsCaptureItemInterop, RoInitialize,
                     RO_INIT_MULTITHREADED,
@@ -529,12 +676,13 @@ mod imp {
             UI::{
                 HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
                 Input::KeyboardAndMouse::{
-                    RegisterHotKey, SendInput, UnregisterHotKey, HOT_KEY_MODIFIERS, INPUT, INPUT_0,
-                    INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-                    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, MOUSEEVENTF_LEFTDOWN,
+                    GetAsyncKeyState, RegisterHotKey, ReleaseCapture, SendInput, SetCapture,
+                    UnregisterHotKey, HOT_KEY_MODIFIERS, INPUT, INPUT_0, INPUT_KEYBOARD,
+                    INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOD_ALT,
+                    MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, MOUSEEVENTF_LEFTDOWN,
                     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
                     MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-                    MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY,
+                    MOUSEEVENTF_WHEEL, MOUSEINPUT, VIRTUAL_KEY, VK_LBUTTON,
                 },
                 Magnification::{MagInitialize, MagShowSystemCursor},
                 Shell::{
@@ -543,32 +691,48 @@ mod imp {
                 },
                 WindowsAndMessaging::{
                     AppendMenuW, ClipCursor, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-                    DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, EnumWindows,
-                    GetClientRect, GetClipCursor, GetCursorInfo, GetCursorPos, GetForegroundWindow,
-                    GetGUIThreadInfo, GetIconInfo, GetSystemMetrics, GetWindowRect,
-                    GetWindowTextLengthW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
-                    LoadCursorW, LoadIconW, LoadImageW, PeekMessageW, PostMessageW, RegisterClassW,
-                    SetCursorPos, SetForegroundWindow, SetLayeredWindowAttributes,
-                    SetWindowLongPtrW, SetWindowPos, ShowCursor, SystemParametersInfoW,
-                    TranslateMessage, WindowFromPoint, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW,
-                    CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE, GWLP_HWNDPARENT, HICON,
-                    HTCLIENT, HTTRANSPARENT, HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW,
-                    IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY,
-                    MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED, PM_REMOVE, SM_CXVIRTUALSCREEN,
-                    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETMOUSE,
-                    SPI_GETMOUSESPEED, SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_HIDEWINDOW,
+                    DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, EnumChildWindows,
+                    EnumWindows, GetClassNameW, GetClientRect, GetClipCursor, GetCursorInfo,
+                    GetCursorPos, GetDlgCtrlID, GetForegroundWindow, GetGUIThreadInfo, GetIconInfo,
+                    GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
+                    GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, KillTimer,
+                    LoadCursorW, LoadIconW, LoadImageW, MessageBoxW, PeekMessageW, PostMessageW,
+                    RegisterClassW, SendMessageW, SetCursorPos, SetForegroundWindow,
+                    SetLayeredWindowAttributes, SetTimer, SetWindowLongPtrW, SetWindowPos,
+                    ShowCursor, SystemParametersInfoW, TranslateMessage, WindowFromPoint,
+                    CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CURSORINFO, DI_NORMAL, GUITHREADINFO,
+                    GUI_INMOVESIZE, GWLP_HWNDPARENT, GWL_EXSTYLE, HICON, HTCAPTION, HTCLIENT,
+                    HTTRANSPARENT, HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW,
+                    IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY, MB_OK,
+                    MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED, PM_REMOVE,
+                    SET_WINDOW_POS_FLAGS, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+                    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETMOUSE, SPI_GETMOUSESPEED,
+                    SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_FRAMECHANGED, SWP_HIDEWINDOW,
                     SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSENDCHANGING, SWP_NOSIZE,
                     SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP,
-                    WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_ERASEBKGND, WM_HOTKEY,
+                    WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN,
                     WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
                     WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
                     WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP,
-                    WM_SETCURSOR, WM_USER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+                    WM_SETCURSOR, WM_TIMER, WM_USER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
                     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
     };
+
+    const WDA_MONITOR: u32 = 0x00000001;
+    const WDA_EXCLUDEFROMCAPTURE: u32 = 0x00000011;
+    const BM_CLICK_MSG: u32 = 0x00F5;
+    const SETTINGS_OWNER_BUTTON_IDS: [i32; 11] = [
+        1055, 1057, 1083, 1130, 1134, 1135, 1136, 1142, 1143, 1153, 1155,
+    ];
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        #[link_name = "SetWindowDisplayAffinity"]
+        fn win32_set_window_display_affinity(hwnd: HWND, affinity: u32) -> BOOL;
+    }
 
     #[derive(Default)]
     struct InputProbeCounters {
@@ -771,9 +935,13 @@ mod imp {
             3 => "pointer-magnifier-toggle",
             4 => "window-screenshot",
             5 => "pointer-magnifier-screenshot",
-            6 => "pointer-color-code-toggle",
-            7 => "pointer-color-code-copy",
-            8 => "pointer-cursor-toggle",
+            6 => "region-magnifier-toggle",
+            7 => "region-magnifier-screenshot",
+            8 => "region-magnifier-select",
+            9 => "pointer-color-code-toggle",
+            10 => "pointer-color-code-copy",
+            11 => "pointer-cursor-toggle",
+            12 => "region-magnifier-delete",
             _ => "unknown",
         }
     }
@@ -860,6 +1028,184 @@ mod imp {
         }
     }
 
+    pub fn foreground_or_fallback_running_app() -> Result<RunningAppSelection, Win32Error> {
+        let source = foreground_or_fallback_source_window()?;
+        running_app_from_hwnd(hwnd_from_raw(source.hwnd))
+    }
+
+    pub fn running_apps_for_region() -> Result<Vec<RunningAppSelection>, Win32Error> {
+        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let apps = &mut *(lparam.0 as *mut Vec<RunningAppSelection>);
+            if let Ok(app) = running_app_from_hwnd(hwnd) {
+                let already_added = apps.iter().any(|existing| {
+                    existing
+                        .executable_name
+                        .eq_ignore_ascii_case(&app.executable_name)
+                        && existing.title == app.title
+                });
+                if !already_added {
+                    apps.push(app);
+                }
+            }
+            TRUE
+        }
+
+        let mut apps: Vec<RunningAppSelection> = Vec::new();
+        unsafe { EnumWindows(Some(enum_proc), LPARAM((&mut apps) as *mut _ as isize)) }
+            .map_err(|error| Win32Error::Api(format!("EnumWindows failed: {error:?}")))?;
+        apps.sort_by(|a, b| {
+            a.executable_name
+                .to_lowercase()
+                .cmp(&b.executable_name.to_lowercase())
+                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+        });
+        Ok(apps)
+    }
+
+    pub fn select_running_app_for_region() -> Result<Option<RunningAppSelection>, Win32Error> {
+        let apps = running_apps_for_region()?;
+        if apps.is_empty() {
+            return Ok(None);
+        }
+
+        let menu = unsafe { CreatePopupMenu() }
+            .map_err(|error| Win32Error::Api(format!("CreatePopupMenu failed: {error:?}")))?;
+        for (index, app) in apps.iter().enumerate() {
+            let label = if app.title.trim().is_empty() {
+                app.executable_name.clone()
+            } else {
+                format!("{} - {}", app.executable_name, app.title)
+            };
+            let label = wide_null(&label);
+            unsafe { AppendMenuW(menu, MF_STRING, 2000 + index, PCWSTR(label.as_ptr())) }
+                .map_err(|error| Win32Error::Api(format!("AppendMenuW failed: {error:?}")))?;
+        }
+
+        let mut point = POINT::default();
+        unsafe { GetCursorPos(&mut point) }
+            .map_err(|error| Win32Error::Api(format!("GetCursorPos failed: {error:?}")))?;
+        let owner = unsafe { GetForegroundWindow() };
+        if !is_null_hwnd(owner) {
+            let _ = unsafe { SetForegroundWindow(owner) };
+        }
+        let command = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::TrackPopupMenu(
+                menu,
+                windows::Win32::UI::WindowsAndMessaging::TPM_RETURNCMD
+                    | windows::Win32::UI::WindowsAndMessaging::TPM_RIGHTBUTTON,
+                point.x,
+                point.y,
+                None,
+                owner,
+                None,
+            )
+        };
+        unsafe { DestroyMenu(menu) }
+            .map_err(|error| Win32Error::Api(format!("DestroyMenu failed: {error:?}")))?;
+
+        if command.0 == 0 {
+            return Ok(None);
+        }
+        let index = command.0.saturating_sub(2000) as usize;
+        Ok(apps.get(index).cloned())
+    }
+
+    pub fn screen_rect_topmost_window_for_executable(
+        rect: PhysicalRect,
+        executable_name: &str,
+    ) -> Result<Option<isize>, Win32Error> {
+        let expected = executable_name.trim();
+        if expected.is_empty() || rect.is_empty() {
+            return Ok(None);
+        }
+        let width = rect.width().max(1);
+        let height = rect.height().max(1);
+        let xs = [
+            rect.left + (width / 4).clamp(0, width - 1),
+            rect.left + (width / 2).clamp(0, width - 1),
+            rect.left + ((width * 3) / 4).clamp(0, width - 1),
+        ];
+        let ys = [
+            rect.top + (height / 4).clamp(0, height - 1),
+            rect.top + (height / 2).clamp(0, height - 1),
+            rect.top + ((height * 3) / 4).clamp(0, height - 1),
+        ];
+        let mut matched_hwnd: Option<HWND> = None;
+        for y in ys {
+            for x in xs {
+                let Some(hwnd) = top_visible_window_at_point_excluding_region(x, y) else {
+                    return Ok(None);
+                };
+                if is_null_hwnd(hwnd) {
+                    return Ok(None);
+                }
+                let actual = executable_name_for_window(hwnd)?;
+                if !actual.eq_ignore_ascii_case(expected) {
+                    return Ok(None);
+                }
+                matched_hwnd.get_or_insert(hwnd);
+            }
+        }
+        Ok(matched_hwnd.map(hwnd_to_raw))
+    }
+
+    pub fn screen_rect_topmost_matches_executable(
+        rect: PhysicalRect,
+        executable_name: &str,
+    ) -> Result<bool, Win32Error> {
+        Ok(screen_rect_topmost_window_for_executable(rect, executable_name)?.is_some())
+    }
+
+    struct PointWindowSearch {
+        x: i32,
+        y: i32,
+        hwnd: HWND,
+    }
+
+    fn top_visible_window_at_point_excluding_region(x: i32, y: i32) -> Option<HWND> {
+        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let state = &mut *(lparam.0 as *mut PointWindowSearch);
+            if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                return TRUE;
+            }
+            if window_class_name(hwnd).as_deref() == Some("DodbogiRegionMagnifierHost") {
+                return TRUE;
+            }
+            let mut rect = RECT::default();
+            if unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok()
+                && state.x >= rect.left
+                && state.x < rect.right
+                && state.y >= rect.top
+                && state.y < rect.bottom
+            {
+                state.hwnd = hwnd;
+                return BOOL(0);
+            }
+            TRUE
+        }
+
+        let mut state = PointWindowSearch {
+            x,
+            y,
+            hwnd: HWND(std::ptr::null_mut()),
+        };
+        let _ = unsafe { EnumWindows(Some(enum_proc), LPARAM((&mut state) as *mut _ as isize)) };
+        if is_null_hwnd(state.hwnd) {
+            None
+        } else {
+            Some(state.hwnd)
+        }
+    }
+
+    fn window_class_name(hwnd: HWND) -> Option<String> {
+        let mut class_name = [0u16; 128];
+        let len = unsafe { GetClassNameW(hwnd, &mut class_name) };
+        if len <= 0 {
+            return None;
+        }
+        Some(String::from_utf16_lossy(&class_name[..len as usize]))
+    }
+
     pub fn source_window_from_raw(hwnd: isize) -> Result<SourceWindow, Win32Error> {
         source_window_from_hwnd(hwnd_from_raw(hwnd))
     }
@@ -896,6 +1242,63 @@ mod imp {
             return Err(Win32Error::InvalidWindow);
         }
         source_window_from_hwnd(hwnd)
+    }
+
+    fn running_app_from_hwnd(hwnd: HWND) -> Result<RunningAppSelection, Win32Error> {
+        source_window_from_hwnd(hwnd)?;
+        let executable_name = executable_name_for_window(hwnd)?;
+        let title = window_title(hwnd);
+        Ok(RunningAppSelection {
+            executable_name,
+            title,
+        })
+    }
+
+    fn executable_name_for_window(hwnd: HWND) -> Result<String, Win32Error> {
+        let mut process_id = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+        }
+        if process_id == 0 {
+            return Err(Win32Error::InvalidWindow);
+        }
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) }
+            .map_err(|error| Win32Error::Api(format!("OpenProcess failed: {error:?}")))?;
+        let result = query_process_executable_name(process);
+        let _ = unsafe { CloseHandle(process) };
+        result
+    }
+
+    fn query_process_executable_name(process: HANDLE) -> Result<String, Win32Error> {
+        let mut buffer = vec![0u16; 32768];
+        let mut len = buffer.len() as u32;
+        unsafe {
+            QueryFullProcessImageNameW(
+                process,
+                PROCESS_NAME_WIN32,
+                PWSTR(buffer.as_mut_ptr()),
+                &mut len,
+            )
+        }
+        .map_err(|error| {
+            Win32Error::Api(format!("QueryFullProcessImageNameW failed: {error:?}"))
+        })?;
+        let full_path = String::from_utf16_lossy(&buffer[..len as usize]);
+        Ok(Path::new(&full_path)
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(full_path))
+    }
+
+    fn window_title(hwnd: HWND) -> String {
+        let len = unsafe { GetWindowTextLengthW(hwnd) }.max(0) as usize;
+        if len == 0 {
+            return String::new();
+        }
+        let mut buffer = vec![0u16; len + 1];
+        let copied = unsafe { GetWindowTextW(hwnd, &mut buffer) }.max(0) as usize;
+        String::from_utf16_lossy(&buffer[..copied])
     }
 
     pub fn is_foreground_move_size_active() -> bool {
@@ -1788,6 +2191,26 @@ mod imp {
         }
     }
 
+    fn draw_region_magnifier_resize_grip_hdc(hdc: HDC, rect: &RECT) {
+        let color = COLORREF(0x0085796a);
+        for offset in [5, 10, 15] {
+            let line = RECT {
+                left: (rect.right - offset - 7).max(rect.left),
+                top: (rect.bottom - offset).max(rect.top),
+                right: (rect.right - offset + 1).max(rect.left + 1),
+                bottom: (rect.bottom - offset + 2).max(rect.top + 1),
+            };
+            fill_rect_color(hdc, &line, color);
+            let line = RECT {
+                left: (rect.right - offset).max(rect.left),
+                top: (rect.bottom - offset - 7).max(rect.top),
+                right: (rect.right - offset + 2).max(rect.left + 1),
+                bottom: (rect.bottom - offset + 1).max(rect.top + 1),
+            };
+            fill_rect_color(hdc, &line, color);
+        }
+    }
+
     fn paint_pointer_magnifier_frame(
         host_hwnd: HWND,
         geometry: &PointerMagnifierGeometry,
@@ -2259,6 +2682,1846 @@ mod imp {
         let _ = unsafe { DeleteObject(HGDIOBJ(bitmap.0)) };
         let _ = unsafe { DeleteDC(mem_dc) };
         let _ = unsafe { ReleaseDC(None, screen_dc) };
+    }
+
+    pub struct RegionMagnifierWindow {
+        host_hwnd: HWND,
+        visible: bool,
+        last_config: RegionMagnifierConfig,
+    }
+
+    fn mark_region_magnifier_excluded_from_capture(hwnd: HWND) {
+        if is_null_hwnd(hwnd) {
+            return;
+        }
+        // Magpie uses WDA_EXCLUDEFROMCAPTURE for its scaling window to prevent
+        // the overlay from feeding back into desktop capture.  Do the same for
+        // selected-region outputs; fall back to WDA_MONITOR on older Windows.
+        let excluded =
+            unsafe { win32_set_window_display_affinity(hwnd, WDA_EXCLUDEFROMCAPTURE) }.as_bool();
+        if !excluded {
+            let _ = unsafe { win32_set_window_display_affinity(hwnd, WDA_MONITOR) };
+        }
+    }
+
+    fn set_region_magnifier_mouse_passthrough(hwnd: HWND, passthrough: bool) {
+        if is_null_hwnd(hwnd) {
+            return;
+        }
+        let current = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        let transparent = WS_EX_TRANSPARENT.0 as isize;
+        let next = if passthrough {
+            current | transparent
+        } else {
+            current & !transparent
+        };
+        if next != current {
+            unsafe {
+                let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next);
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+                );
+            }
+        }
+    }
+
+    impl RegionMagnifierWindow {
+        fn apply_geometry(
+            &mut self,
+            mut config: RegionMagnifierConfig,
+            geometry: RegionMagnifierGeometry,
+            window_pos_flags: SET_WINDOW_POS_FLAGS,
+        ) -> Result<RegionMagnifierUpdateReport, Win32Error> {
+            config = config.sanitized();
+            self.last_config = RegionMagnifierConfig {
+                source_rect: geometry.source_rect,
+                scale_percent: config.scale_percent,
+                output_position: Some((
+                    geometry.destination_rect.left,
+                    geometry.destination_rect.top,
+                )),
+                border_visible: config.border_visible,
+                mouse_passthrough: config.mouse_passthrough,
+            };
+            store_region_magnifier_paint_state(self.host_hwnd, geometry);
+            set_region_magnifier_mouse_passthrough(self.host_hwnd, config.mouse_passthrough);
+            unsafe {
+                SetWindowPos(
+                    self.host_hwnd,
+                    Some(HWND_TOPMOST),
+                    geometry.destination_rect.left,
+                    geometry.destination_rect.top,
+                    geometry.destination_rect.width().max(1),
+                    geometry.destination_rect.height().max(1),
+                    window_pos_flags,
+                )
+            }
+            .map_err(|error| {
+                Win32Error::Api(format!(
+                    "SetWindowPos region magnifier host failed: {error:?}"
+                ))
+            })?;
+            paint_region_magnifier_frame(self.host_hwnd, &geometry)?;
+            self.visible = true;
+            Ok(RegionMagnifierUpdateReport {
+                source_rect: geometry.source_rect,
+                destination_rect: geometry.destination_rect,
+                scale_percent: config.scale_percent,
+            })
+        }
+
+        pub fn create_hidden() -> Result<Self, Win32Error> {
+            unsafe extern "system" fn wnd_proc(
+                hwnd: HWND,
+                msg: u32,
+                wparam: WPARAM,
+                lparam: LPARAM,
+            ) -> LRESULT {
+                match msg {
+                    WM_NCHITTEST => {
+                        let screen_x = loword_i32(lparam);
+                        let screen_y = hiword_i32(lparam);
+                        if region_magnifier_mouse_passthrough_enabled(hwnd)
+                            || screen_point_over_dodbogi_settings_window(screen_x, screen_y)
+                        {
+                            return LRESULT(HTTRANSPARENT as isize);
+                        }
+                        if region_magnifier_screen_point_in_resize_grip(hwnd, screen_x, screen_y) {
+                            return LRESULT(HTCLIENT as isize);
+                        }
+                        return LRESULT(HTCAPTION as isize);
+                    }
+                    WM_LBUTTONDOWN => {
+                        if region_magnifier_mouse_passthrough_enabled(hwnd) {
+                            return LRESULT(0);
+                        }
+                        if let Some((screen_x, screen_y)) =
+                            region_magnifier_client_lparam_to_screen(hwnd, lparam)
+                        {
+                            if screen_point_over_dodbogi_settings_window(screen_x, screen_y) {
+                                return LRESULT(0);
+                            }
+                        }
+                        let x = loword_i32(lparam);
+                        let y = hiword_i32(lparam);
+                        if begin_region_magnifier_resize(hwnd, x, y) {
+                            let _ = unsafe { SetCapture(hwnd) };
+                            return LRESULT(0);
+                        }
+                    }
+                    WM_MOUSEMOVE => {
+                        if region_magnifier_mouse_passthrough_enabled(hwnd) {
+                            return LRESULT(0);
+                        }
+                        if update_region_magnifier_resize(hwnd) {
+                            return LRESULT(0);
+                        }
+                    }
+                    WM_LBUTTONUP => {
+                        if region_magnifier_mouse_passthrough_enabled(hwnd) {
+                            return LRESULT(0);
+                        }
+                        if let Some((screen_x, screen_y)) =
+                            region_magnifier_client_lparam_to_screen(hwnd, lparam)
+                        {
+                            if click_dodbogi_settings_button_at_point(screen_x, screen_y) {
+                                return LRESULT(0);
+                            }
+                        }
+                        if end_region_magnifier_resize(hwnd) {
+                            let _ = unsafe { ReleaseCapture() };
+                            return LRESULT(0);
+                        }
+                    }
+                    WM_ERASEBKGND => return LRESULT(1),
+                    WM_PAINT => return unsafe { paint_region_magnifier_from_state(hwnd) },
+                    WM_DESTROY => return LRESULT(0),
+                    _ => {}
+                }
+                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            }
+
+            let instance = unsafe { GetModuleHandleW(None) }
+                .map_err(|error| Win32Error::Api(format!("GetModuleHandleW failed: {error:?}")))?;
+            let class_name = windows::core::w!("DodbogiRegionMagnifierHost");
+            let wc = WNDCLASSW {
+                style: CS_HREDRAW | CS_VREDRAW,
+                lpfnWndProc: Some(wnd_proc),
+                hInstance: HINSTANCE(instance.0),
+                lpszClassName: class_name,
+                ..Default::default()
+            };
+            let atom = unsafe { RegisterClassW(&wc) };
+            if atom == 0 {
+                let err = unsafe { GetLastError() };
+                if err.0 != 1410 {
+                    return Err(Win32Error::Api(format!(
+                        "RegisterClassW region magnifier host failed: {err:?}"
+                    )));
+                }
+            }
+
+            let host_hwnd = unsafe {
+                CreateWindowExW(
+                    WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                    class_name,
+                    windows::core::w!("Dodbogi Region Magnifier"),
+                    WS_POPUP,
+                    0,
+                    0,
+                    320,
+                    180,
+                    None,
+                    None,
+                    Some(HINSTANCE(instance.0)),
+                    None,
+                )
+            }
+            .map_err(|error| {
+                Win32Error::Api(format!(
+                    "CreateWindowExW region magnifier host failed: {error:?}"
+                ))
+            })?;
+            mark_region_magnifier_excluded_from_capture(host_hwnd);
+
+            Ok(Self {
+                host_hwnd,
+                visible: false,
+                last_config: RegionMagnifierConfig {
+                    source_rect: PhysicalRect {
+                        left: 0,
+                        top: 0,
+                        right: 100,
+                        bottom: 100,
+                    },
+                    scale_percent: 200,
+                    output_position: None,
+                    border_visible: true,
+                    mouse_passthrough: false,
+                },
+            })
+        }
+
+        pub fn update(
+            &mut self,
+            config: RegionMagnifierConfig,
+        ) -> Result<RegionMagnifierUpdateReport, Win32Error> {
+            let mut config = config.sanitized();
+            let geometry = if self.visible {
+                let mut rect = RECT::default();
+                let (left, top, width, height) =
+                    if unsafe { GetWindowRect(self.host_hwnd, &mut rect) }.is_ok() {
+                        (
+                            rect.left,
+                            rect.top,
+                            (rect.right - rect.left).max(1),
+                            (rect.bottom - rect.top).max(1),
+                        )
+                    } else {
+                        let preferred = preferred_region_magnifier_destination(config);
+                        (
+                            preferred.left,
+                            preferred.top,
+                            preferred.width().max(1),
+                            preferred.height().max(1),
+                        )
+                    };
+                let resized_scale = region_magnifier_scale_from_window(config, width, height);
+                if resized_scale != config.scale_percent {
+                    config.scale_percent = resized_scale;
+                    config.output_position = Some((left, top));
+                }
+                region_magnifier_geometry_at(config, left, top)
+            } else if let Some((left, top)) = config.output_position {
+                region_magnifier_geometry_at(config, left, top)
+            } else {
+                region_magnifier_geometry(config)
+            }?;
+            let window_pos_flags = if self.visible {
+                SWP_NOSENDCHANGING | SWP_SHOWWINDOW | SWP_NOZORDER
+            } else {
+                SWP_NOSENDCHANGING | SWP_SHOWWINDOW
+            };
+            self.apply_geometry(config, geometry, window_pos_flags)
+        }
+
+        pub fn apply_profile_config(
+            &mut self,
+            config: RegionMagnifierConfig,
+        ) -> Result<RegionMagnifierUpdateReport, Win32Error> {
+            let config = config.sanitized();
+            let geometry = if self.visible {
+                let mut rect = RECT::default();
+                let (left, top) = if unsafe { GetWindowRect(self.host_hwnd, &mut rect) }.is_ok() {
+                    (rect.left, rect.top)
+                } else if let Some((left, top)) = config.output_position {
+                    (left, top)
+                } else {
+                    let preferred = preferred_region_magnifier_destination(config);
+                    (preferred.left, preferred.top)
+                };
+                region_magnifier_geometry_at(config, left, top)
+            } else if let Some((left, top)) = config.output_position {
+                region_magnifier_geometry_at(config, left, top)
+            } else {
+                region_magnifier_geometry(config)
+            }?;
+            let window_pos_flags = if self.visible {
+                SWP_NOSENDCHANGING | SWP_SHOWWINDOW | SWP_NOZORDER
+            } else {
+                SWP_NOSENDCHANGING | SWP_SHOWWINDOW
+            };
+            self.apply_geometry(config, geometry, window_pos_flags)
+        }
+
+        pub fn hwnd(&self) -> isize {
+            hwnd_to_raw(self.host_hwnd)
+        }
+
+        pub fn current_report(&self) -> Result<Option<RegionMagnifierUpdateReport>, Win32Error> {
+            if !self.visible {
+                return Ok(None);
+            }
+            let Some(geometry) = lookup_region_magnifier_paint_state(self.host_hwnd) else {
+                return Ok(None);
+            };
+            let mut rect = RECT::default();
+            if unsafe { GetWindowRect(self.host_hwnd, &mut rect) }.is_err() {
+                return Ok(None);
+            }
+            let scale_percent = region_magnifier_scale_from_window(
+                self.last_config,
+                (rect.right - rect.left).max(1),
+                (rect.bottom - rect.top).max(1),
+            );
+            Ok(Some(RegionMagnifierUpdateReport {
+                source_rect: geometry.source_rect,
+                destination_rect: PhysicalRect {
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                },
+                scale_percent,
+            }))
+        }
+
+        pub fn hide(&mut self) {
+            let _ = unsafe {
+                SetWindowPos(
+                    self.host_hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE
+                        | SWP_NOCOPYBITS
+                        | SWP_NOSENDCHANGING
+                        | SWP_NOMOVE
+                        | SWP_NOSIZE
+                        | SWP_HIDEWINDOW,
+                )
+            };
+            clear_region_magnifier_paint_state(self.host_hwnd);
+            self.visible = false;
+        }
+
+        pub fn set_topmost(&mut self, topmost: bool) {
+            if is_null_hwnd(self.host_hwnd) {
+                return;
+            }
+            let _ = unsafe { SetWindowLongPtrW(self.host_hwnd, GWLP_HWNDPARENT, 0) };
+            let insert_after = if topmost {
+                HWND_TOPMOST
+            } else {
+                HWND_NOTOPMOST
+            };
+            let _ = unsafe {
+                SetWindowPos(
+                    self.host_hwnd,
+                    Some(insert_after),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSENDCHANGING | SWP_NOSIZE,
+                )
+            };
+        }
+
+        pub fn follow_target_z_order(&mut self, target_hwnd: isize) {
+            if is_null_hwnd(self.host_hwnd) {
+                return;
+            }
+            let target = hwnd_from_raw(target_hwnd);
+            if is_null_hwnd(target) || !unsafe { IsWindow(Some(target)) }.as_bool() {
+                self.set_topmost(false);
+                return;
+            }
+            let target_topmost =
+                (unsafe { GetWindowLongPtrW(target, GWL_EXSTYLE) } & WS_EX_TOPMOST.0 as isize) != 0;
+            let _ =
+                unsafe { SetWindowLongPtrW(self.host_hwnd, GWLP_HWNDPARENT, target.0 as isize) };
+            let flags = SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSENDCHANGING | SWP_NOSIZE;
+            let _ = unsafe { SetWindowPos(self.host_hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, flags) };
+            if !target_topmost {
+                let _ = unsafe {
+                    SetWindowPos(self.host_hwnd, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags)
+                };
+            }
+        }
+
+        pub fn save_screenshot(
+            &mut self,
+            path: &Path,
+            config: RegionMagnifierConfig,
+        ) -> Result<RegionMagnifierScreenshotReport, Win32Error> {
+            let was_visible = self.visible;
+            if was_visible {
+                self.hide();
+                thread::sleep(Duration::from_millis(16));
+            }
+            let result = save_region_magnifier_screenshot(path, config);
+            if was_visible {
+                let _ = self.update(self.last_config);
+            }
+            result
+        }
+    }
+
+    impl Drop for RegionMagnifierWindow {
+        fn drop(&mut self) {
+            clear_region_magnifier_paint_state(self.host_hwnd);
+            if !is_null_hwnd(self.host_hwnd) {
+                let _ = unsafe { DestroyWindow(self.host_hwnd) };
+            }
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct RegionMagnifierGeometry {
+        source_rect: PhysicalRect,
+        destination_rect: PhysicalRect,
+        output_width: u32,
+        output_height: u32,
+        border_visible: bool,
+        mouse_passthrough: bool,
+    }
+
+    #[derive(Clone, Copy)]
+    struct RegionMagnifierResizeState {
+        hwnd: isize,
+        start_cursor_x: i32,
+        start_cursor_y: i32,
+        start_rect: PhysicalRect,
+        source_width: i32,
+        source_height: i32,
+    }
+
+    static REGION_MAGNIFIER_PAINT_STATE: OnceLock<Mutex<Vec<(isize, RegionMagnifierGeometry)>>> =
+        OnceLock::new();
+    static REGION_MAGNIFIER_RESIZE_STATE: OnceLock<Mutex<Option<RegionMagnifierResizeState>>> =
+        OnceLock::new();
+
+    fn region_magnifier_paint_state() -> &'static Mutex<Vec<(isize, RegionMagnifierGeometry)>> {
+        REGION_MAGNIFIER_PAINT_STATE.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    fn region_magnifier_resize_state() -> &'static Mutex<Option<RegionMagnifierResizeState>> {
+        REGION_MAGNIFIER_RESIZE_STATE.get_or_init(|| Mutex::new(None))
+    }
+
+    fn store_region_magnifier_paint_state(hwnd: HWND, geometry: RegionMagnifierGeometry) {
+        if let Ok(mut states) = region_magnifier_paint_state().lock() {
+            let hwnd_raw = hwnd_to_raw(hwnd);
+            if let Some((_, existing)) = states.iter_mut().find(|(stored, _)| *stored == hwnd_raw) {
+                *existing = geometry;
+            } else {
+                states.push((hwnd_raw, geometry));
+            }
+        }
+    }
+
+    fn lookup_region_magnifier_paint_state(hwnd: HWND) -> Option<RegionMagnifierGeometry> {
+        region_magnifier_paint_state()
+            .lock()
+            .ok()
+            .and_then(|states| {
+                let hwnd_raw = hwnd_to_raw(hwnd);
+                states
+                    .iter()
+                    .find(|(stored, _)| *stored == hwnd_raw)
+                    .map(|(_, geometry)| *geometry)
+            })
+    }
+
+    fn clear_region_magnifier_paint_state(hwnd: HWND) {
+        if let Ok(mut states) = region_magnifier_paint_state().lock() {
+            let hwnd_raw = hwnd_to_raw(hwnd);
+            states.retain(|(stored, _)| *stored != hwnd_raw);
+        }
+    }
+
+    const REGION_MAGNIFIER_RESIZE_GRIP: i32 = 18;
+
+    fn region_magnifier_border_inset(config: RegionMagnifierConfig) -> i32 {
+        if config.sanitized().border_visible {
+            POINTER_MAGNIFIER_BORDER
+        } else {
+            0
+        }
+    }
+
+    fn region_magnifier_geometry_border_inset(geometry: &RegionMagnifierGeometry) -> i32 {
+        if geometry.border_visible {
+            POINTER_MAGNIFIER_BORDER
+        } else {
+            0
+        }
+    }
+
+    fn region_magnifier_mouse_passthrough_enabled(hwnd: HWND) -> bool {
+        lookup_region_magnifier_paint_state(hwnd)
+            .map(|geometry| geometry.mouse_passthrough)
+            .unwrap_or(false)
+    }
+
+    fn region_magnifier_client_lparam_to_screen(hwnd: HWND, lparam: LPARAM) -> Option<(i32, i32)> {
+        let mut point = POINT {
+            x: loword_i32(lparam),
+            y: hiword_i32(lparam),
+        };
+        if unsafe { ClientToScreen(hwnd, &mut point).as_bool() } {
+            Some((point.x, point.y))
+        } else {
+            None
+        }
+    }
+
+    struct SettingsWindowHitTest {
+        x: i32,
+        y: i32,
+        found: bool,
+    }
+
+    fn screen_point_over_dodbogi_settings_window(x: i32, y: i32) -> bool {
+        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let state = &mut *(lparam.0 as *mut SettingsWindowHitTest);
+            if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                return TRUE;
+            }
+            let mut class_name = [0u16; 64];
+            let len = unsafe { GetClassNameW(hwnd, &mut class_name) };
+            if len <= 0 {
+                return TRUE;
+            }
+            let class_name = String::from_utf16_lossy(&class_name[..len as usize]);
+            if class_name != "DodbogiSettingsWindow" {
+                return TRUE;
+            }
+            let mut rect = RECT::default();
+            if unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok()
+                && state.x >= rect.left
+                && state.x < rect.right
+                && state.y >= rect.top
+                && state.y < rect.bottom
+            {
+                state.found = true;
+                return BOOL(0);
+            }
+            TRUE
+        }
+
+        let mut state = SettingsWindowHitTest { x, y, found: false };
+        let _ = unsafe { EnumWindows(Some(enum_proc), LPARAM((&mut state) as *mut _ as isize)) };
+        state.found
+    }
+
+    struct SettingsButtonHitTest {
+        x: i32,
+        y: i32,
+        hwnd: HWND,
+    }
+
+    fn click_dodbogi_settings_button_at_point(x: i32, y: i32) -> bool {
+        unsafe extern "system" fn enum_settings(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let state = &mut *(lparam.0 as *mut SettingsButtonHitTest);
+            if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                return TRUE;
+            }
+            if window_class_name(hwnd).as_deref() != Some("DodbogiSettingsWindow") {
+                return TRUE;
+            }
+            let mut rect = RECT::default();
+            if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err()
+                || state.x < rect.left
+                || state.x >= rect.right
+                || state.y < rect.top
+                || state.y >= rect.bottom
+            {
+                return TRUE;
+            }
+            unsafe extern "system" fn enum_child(child: HWND, lparam: LPARAM) -> BOOL {
+                let state = &mut *(lparam.0 as *mut SettingsButtonHitTest);
+                if !unsafe { IsWindowVisible(child) }.as_bool() {
+                    return TRUE;
+                }
+                let id = unsafe { GetDlgCtrlID(child) };
+                if !SETTINGS_OWNER_BUTTON_IDS.contains(&id) {
+                    return TRUE;
+                }
+                let mut rect = RECT::default();
+                if unsafe { GetWindowRect(child, &mut rect) }.is_ok()
+                    && state.x >= rect.left
+                    && state.x < rect.right
+                    && state.y >= rect.top
+                    && state.y < rect.bottom
+                {
+                    state.hwnd = child;
+                    return BOOL(0);
+                }
+                TRUE
+            }
+            let _ = unsafe { EnumChildWindows(Some(hwnd), Some(enum_child), lparam) };
+            BOOL(0)
+        }
+
+        let mut state = SettingsButtonHitTest {
+            x,
+            y,
+            hwnd: HWND(std::ptr::null_mut()),
+        };
+        let _ =
+            unsafe { EnumWindows(Some(enum_settings), LPARAM((&mut state) as *mut _ as isize)) };
+        if is_null_hwnd(state.hwnd) {
+            return false;
+        }
+        let _ = unsafe { SendMessageW(state.hwnd, BM_CLICK_MSG, Some(WPARAM(0)), Some(LPARAM(0))) };
+        true
+    }
+
+    fn region_magnifier_screen_point_in_resize_grip(
+        hwnd: HWND,
+        screen_x: i32,
+        screen_y: i32,
+    ) -> bool {
+        let mut rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
+            return false;
+        }
+        screen_x >= rect.right - REGION_MAGNIFIER_RESIZE_GRIP
+            && screen_y >= rect.bottom - REGION_MAGNIFIER_RESIZE_GRIP
+            && screen_x <= rect.right
+            && screen_y <= rect.bottom
+    }
+
+    fn region_magnifier_client_point_in_resize_grip(hwnd: HWND, x: i32, y: i32) -> bool {
+        let mut client = RECT::default();
+        if unsafe { GetClientRect(hwnd, &mut client) }.is_err() {
+            return false;
+        }
+        x >= client.right - REGION_MAGNIFIER_RESIZE_GRIP
+            && y >= client.bottom - REGION_MAGNIFIER_RESIZE_GRIP
+            && x <= client.right
+            && y <= client.bottom
+    }
+
+    fn begin_region_magnifier_resize(hwnd: HWND, x: i32, y: i32) -> bool {
+        if !region_magnifier_client_point_in_resize_grip(hwnd, x, y) {
+            return false;
+        }
+        let Some(geometry) = lookup_region_magnifier_paint_state(hwnd) else {
+            return false;
+        };
+        let mut rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
+            return false;
+        }
+        let mut cursor = POINT::default();
+        if unsafe { GetCursorPos(&mut cursor) }.is_err() {
+            return false;
+        }
+        if let Ok(mut slot) = region_magnifier_resize_state().lock() {
+            *slot = Some(RegionMagnifierResizeState {
+                hwnd: hwnd_to_raw(hwnd),
+                start_cursor_x: cursor.x,
+                start_cursor_y: cursor.y,
+                start_rect: PhysicalRect {
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                },
+                source_width: geometry.source_rect.width().max(1),
+                source_height: geometry.source_rect.height().max(1),
+            });
+        }
+        true
+    }
+
+    fn update_region_magnifier_resize(hwnd: HWND) -> bool {
+        let state = region_magnifier_resize_state()
+            .lock()
+            .ok()
+            .and_then(|slot| *slot);
+        let Some(state) = state else {
+            return false;
+        };
+        if state.hwnd != hwnd_to_raw(hwnd) {
+            return false;
+        }
+        let mut cursor = POINT::default();
+        if unsafe { GetCursorPos(&mut cursor) }.is_err() {
+            return true;
+        }
+        let dx = cursor.x - state.start_cursor_x;
+        let dy = cursor.y - state.start_cursor_y;
+        let start_w = state.start_rect.width().max(1);
+        let start_h = state.start_rect.height().max(1);
+        let source_w = state.source_width.max(1) as f32;
+        let source_h = state.source_height.max(1) as f32;
+        let border = lookup_region_magnifier_paint_state(hwnd)
+            .map(|geometry| region_magnifier_geometry_border_inset(&geometry))
+            .unwrap_or(POINTER_MAGNIFIER_BORDER);
+        let scale_from_w = ((start_w + dx - border * 2).max(1) as f32 / source_w) * 100.0;
+        let scale_from_h = ((start_h + dy - border * 2).max(1) as f32 / source_h) * 100.0;
+        let scale_percent = scale_from_w.max(scale_from_h).round().clamp(50.0, 1000.0);
+        let new_w = ((source_w * (scale_percent / 100.0)).round() as i32 + border * 2).max(1);
+        let new_h = ((source_h * (scale_percent / 100.0)).round() as i32 + border * 2).max(1);
+        let _ = unsafe {
+            SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                state.start_rect.left,
+                state.start_rect.top,
+                new_w,
+                new_h,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSENDCHANGING,
+            )
+        };
+        unsafe {
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+        true
+    }
+
+    fn end_region_magnifier_resize(hwnd: HWND) -> bool {
+        if let Ok(mut slot) = region_magnifier_resize_state().lock() {
+            if slot
+                .as_ref()
+                .map(|state| state.hwnd == hwnd_to_raw(hwnd))
+                .unwrap_or(false)
+            {
+                *slot = None;
+                return true;
+            }
+        }
+        false
+    }
+
+    unsafe fn paint_region_magnifier_from_state(hwnd: HWND) -> LRESULT {
+        let mut ps = PAINTSTRUCT::default();
+        let hdc = BeginPaint(hwnd, &mut ps);
+        if let Some(state) = lookup_region_magnifier_paint_state(hwnd) {
+            let _ = paint_region_magnifier_frame_hdc(hwnd, hdc, &state);
+        } else {
+            let mut client = RECT::default();
+            let _ = GetClientRect(hwnd, &mut client);
+            fill_rect_color(hdc, &client, COLORREF(0x00fffef9));
+            draw_pointer_magnifier_border_hdc(hdc, &client);
+        }
+        let _ = EndPaint(hwnd, &ps);
+        LRESULT(0)
+    }
+
+    fn paint_region_magnifier_frame(
+        host_hwnd: HWND,
+        geometry: &RegionMagnifierGeometry,
+    ) -> Result<(), Win32Error> {
+        let hdc = unsafe { GetDC(Some(host_hwnd)) };
+        if hdc.is_invalid() {
+            return Err(Win32Error::Api(
+                "GetDC region magnifier host failed".to_string(),
+            ));
+        }
+        let result = paint_region_magnifier_frame_hdc(host_hwnd, hdc, geometry);
+        let _ = unsafe { ReleaseDC(Some(host_hwnd), hdc) };
+        result
+    }
+
+    fn paint_region_magnifier_frame_hdc(
+        host_hwnd: HWND,
+        hdc: HDC,
+        geometry: &RegionMagnifierGeometry,
+    ) -> Result<(), Win32Error> {
+        let mut client = RECT::default();
+        let _ = unsafe { GetClientRect(host_hwnd, &mut client) };
+        let client_w = (client.right - client.left).max(1);
+        let client_h = (client.bottom - client.top).max(1);
+        let buffer_dc = unsafe { CreateCompatibleDC(Some(hdc)) };
+        if buffer_dc.is_invalid() {
+            return Err(Win32Error::Api(
+                "CreateCompatibleDC region magnifier buffer failed".to_string(),
+            ));
+        }
+        let buffer_bitmap = unsafe { CreateCompatibleBitmap(hdc, client_w, client_h) };
+        if buffer_bitmap.is_invalid() {
+            let _ = unsafe { DeleteDC(buffer_dc) };
+            return Err(Win32Error::Api(
+                "CreateCompatibleBitmap region magnifier buffer failed".to_string(),
+            ));
+        }
+        let old_buffer = unsafe { SelectObject(buffer_dc, HGDIOBJ(buffer_bitmap.0)) };
+        fill_rect_color(buffer_dc, &client, COLORREF(0x00fffef9));
+        let border = region_magnifier_geometry_border_inset(geometry);
+
+        let screen_hdc = unsafe { GetDC(None) };
+        if screen_hdc.is_invalid() {
+            let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
+            let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
+            let _ = unsafe { DeleteDC(buffer_dc) };
+            return Err(Win32Error::Api(
+                "GetDC screen failed for region magnifier".to_string(),
+            ));
+        }
+        // Live selected-area magnifier windows are themselves topmost.  CAPTUREBLT
+        // makes overlapping Dodbogi magnifier windows feed into each other, which
+        // causes visible flicker/feedback when multiple output windows overlap.
+        // Use plain SRCCOPY for the live preview and keep CAPTUREBLT only for
+        // explicit screenshot capture.
+        let rop = ROP_CODE(SRCCOPY.0);
+        let blt_ok = unsafe {
+            StretchBlt(
+                buffer_dc,
+                border,
+                border,
+                (client_w - border * 2).max(1),
+                (client_h - border * 2).max(1),
+                Some(screen_hdc),
+                geometry.source_rect.left,
+                geometry.source_rect.top,
+                geometry.source_rect.width().max(1),
+                geometry.source_rect.height().max(1),
+                rop,
+            )
+            .as_bool()
+        };
+        let _ = unsafe { ReleaseDC(None, screen_hdc) };
+        if !blt_ok {
+            let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
+            let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
+            let _ = unsafe { DeleteDC(buffer_dc) };
+            return Err(Win32Error::Api(
+                "StretchBlt region magnifier frame failed".to_string(),
+            ));
+        }
+
+        if geometry.border_visible {
+            draw_pointer_magnifier_border_hdc(buffer_dc, &client);
+            draw_region_magnifier_resize_grip_hdc(buffer_dc, &client);
+        }
+        let present_ok = unsafe {
+            BitBlt(
+                hdc,
+                0,
+                0,
+                client_w,
+                client_h,
+                Some(buffer_dc),
+                0,
+                0,
+                SRCCOPY,
+            )
+            .is_ok()
+        };
+        let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
+        let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
+        let _ = unsafe { DeleteDC(buffer_dc) };
+        if !present_ok {
+            return Err(Win32Error::Api(
+                "BitBlt region magnifier present failed".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn save_region_magnifier_screenshot(
+        path: &Path,
+        config: RegionMagnifierConfig,
+    ) -> Result<RegionMagnifierScreenshotReport, Win32Error> {
+        let geometry = region_magnifier_geometry(config.sanitized())?;
+        capture_screen_rect_to_png(
+            path,
+            geometry.source_rect,
+            geometry.output_width,
+            geometry.output_height,
+        )?;
+        Ok(RegionMagnifierScreenshotReport {
+            path: path.to_path_buf(),
+            source_rect: geometry.source_rect,
+            output_width: geometry.output_width,
+            output_height: geometry.output_height,
+        })
+    }
+
+    fn region_magnifier_geometry(
+        config: RegionMagnifierConfig,
+    ) -> Result<RegionMagnifierGeometry, Win32Error> {
+        if let Some((left, top)) = config.output_position {
+            return region_magnifier_geometry_at(config, left, top);
+        }
+        let destination = preferred_region_magnifier_destination(config);
+        region_magnifier_geometry_at(config, destination.left, destination.top)
+    }
+
+    fn region_magnifier_scale_from_window(
+        config: RegionMagnifierConfig,
+        window_width: i32,
+        window_height: i32,
+    ) -> u32 {
+        let config = config.sanitized();
+        let bounds = virtual_screen_rect();
+        let source_w = config.source_rect.width().max(1).min(bounds.width().max(1)) as f32;
+        let source_h = config
+            .source_rect
+            .height()
+            .max(1)
+            .min(bounds.height().max(1)) as f32;
+        let border = region_magnifier_border_inset(config);
+        let content_w = (window_width - border * 2).max(1) as f32;
+        let content_h = (window_height - border * 2).max(1) as f32;
+        let scale_x = content_w / source_w * 100.0;
+        let scale_y = content_h / source_h * 100.0;
+        ((scale_x + scale_y) / 2.0).round().clamp(50.0, 1000.0) as u32
+    }
+
+    fn region_magnifier_geometry_at(
+        config: RegionMagnifierConfig,
+        left: i32,
+        top: i32,
+    ) -> Result<RegionMagnifierGeometry, Win32Error> {
+        let config = config.sanitized();
+        let bounds = virtual_screen_rect();
+        let source_w = config.source_rect.width().max(1).min(bounds.width().max(1));
+        let source_h = config
+            .source_rect
+            .height()
+            .max(1)
+            .min(bounds.height().max(1));
+        let source_rect = fit_rect_to_bounds(
+            config.source_rect.left,
+            config.source_rect.top,
+            source_w,
+            source_h,
+            bounds,
+        );
+        let scale = config.scale_factor();
+        let border = region_magnifier_border_inset(config);
+        let output_w = ((source_rect.width().max(1) as f32) * scale)
+            .round()
+            .max(1.0) as i32
+            + border * 2;
+        let output_h = ((source_rect.height().max(1) as f32) * scale)
+            .round()
+            .max(1.0) as i32
+            + border * 2;
+        let destination_rect = fit_rect_to_bounds(left, top, output_w, output_h, bounds);
+        Ok(RegionMagnifierGeometry {
+            source_rect,
+            destination_rect,
+            output_width: (output_w - border * 2).max(1) as u32,
+            output_height: (output_h - border * 2).max(1) as u32,
+            border_visible: config.border_visible,
+            mouse_passthrough: config.mouse_passthrough,
+        })
+    }
+
+    fn preferred_region_magnifier_destination(config: RegionMagnifierConfig) -> PhysicalRect {
+        let config = config.sanitized();
+        let bounds = virtual_screen_rect();
+        let source_rect = fit_rect_to_bounds(
+            config.source_rect.left,
+            config.source_rect.top,
+            config.source_rect.width().max(1),
+            config.source_rect.height().max(1),
+            bounds,
+        );
+        let scale = config.scale_factor();
+        let border = region_magnifier_border_inset(config);
+        let output_w = ((source_rect.width().max(1) as f32) * scale)
+            .round()
+            .max(1.0) as i32
+            + border * 2;
+        let output_h = ((source_rect.height().max(1) as f32) * scale)
+            .round()
+            .max(1.0) as i32
+            + border * 2;
+        let gap = POINTER_MAGNIFIER_CURSOR_OFFSET;
+        let right_left = source_rect.right + gap;
+        let left_left = source_rect.left - gap - output_w;
+        let bottom_top = source_rect.bottom + gap;
+        let top_top = source_rect.top - gap - output_h;
+        let (left, top) = if right_left + output_w <= bounds.right {
+            (right_left, source_rect.top)
+        } else if left_left >= bounds.left {
+            (left_left, source_rect.top)
+        } else if bottom_top + output_h <= bounds.bottom {
+            (source_rect.left, bottom_top)
+        } else {
+            (source_rect.left, top_top)
+        };
+        fit_rect_to_bounds(left, top, output_w, output_h, bounds)
+    }
+
+    const REGION_SELECTION_MIN_SIZE: i32 = 2;
+    const REGION_EDIT_HANDLE_MARGIN: i32 = 8;
+    const REGION_EDIT_HANDLE_SIZE: i32 = 7;
+    const REGION_SELECTION_RELEASE_TIMER: usize = 31;
+    const REGION_SELECTION_CREATE_STALE_RELEASE: Duration = Duration::from_millis(700);
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum RegionSelectionMode {
+        Create,
+        Edit,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum RegionSelectionOperation {
+        None,
+        Create,
+        Move,
+        ResizeLeft,
+        ResizeRight,
+        ResizeTop,
+        ResizeBottom,
+        ResizeTopLeft,
+        ResizeTopRight,
+        ResizeBottomLeft,
+        ResizeBottomRight,
+    }
+
+    #[derive(Clone, Copy)]
+    struct RegionSelectionState {
+        origin_x: i32,
+        origin_y: i32,
+        bounds_w: i32,
+        bounds_h: i32,
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+        drag_start_x: i32,
+        drag_start_y: i32,
+        drag_left: i32,
+        drag_top: i32,
+        drag_right: i32,
+        drag_bottom: i32,
+        mode: RegionSelectionMode,
+        operation: RegionSelectionOperation,
+        dragging: bool,
+        last_drag_update: Instant,
+        done: bool,
+        canceled: bool,
+        result: Option<PhysicalRect>,
+    }
+
+    static REGION_SELECTION_STATE: OnceLock<Mutex<Option<RegionSelectionState>>> = OnceLock::new();
+
+    fn region_selection_state() -> &'static Mutex<Option<RegionSelectionState>> {
+        REGION_SELECTION_STATE.get_or_init(|| Mutex::new(None))
+    }
+
+    pub fn select_screen_region() -> Result<Option<RegionSelectionReport>, Win32Error> {
+        select_or_edit_screen_region(None)
+    }
+
+    pub fn edit_screen_region(
+        initial_rect: PhysicalRect,
+    ) -> Result<Option<RegionSelectionReport>, Win32Error> {
+        select_or_edit_screen_region(Some(initial_rect))
+    }
+
+    fn select_or_edit_screen_region(
+        initial_rect: Option<PhysicalRect>,
+    ) -> Result<Option<RegionSelectionReport>, Win32Error> {
+        unsafe extern "system" fn wnd_proc(
+            hwnd: HWND,
+            msg: u32,
+            wparam: WPARAM,
+            lparam: LPARAM,
+        ) -> LRESULT {
+            match msg {
+                WM_LBUTTONDOWN => {
+                    let x = loword_i32(lparam);
+                    let y = hiword_i32(lparam);
+                    let mut should_close = false;
+                    if let Ok(mut slot) = region_selection_state().lock() {
+                        if let Some(state) = slot.as_mut() {
+                            match state.mode {
+                                RegionSelectionMode::Create => {
+                                    begin_create_region_selection(state, x, y)
+                                }
+                                RegionSelectionMode::Edit => {
+                                    let hit = region_edit_hit_test(*state, x, y);
+                                    if hit == RegionSelectionOperation::None {
+                                        commit_region_selection_state(state);
+                                        should_close = true;
+                                    } else {
+                                        begin_edit_region_selection(state, hit, x, y);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if should_close {
+                        unsafe {
+                            let _ = KillTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER);
+                            let _ = ReleaseCapture();
+                            let _ = DestroyWindow(hwnd);
+                        }
+                        return LRESULT(0);
+                    }
+                    let _ = unsafe { SetCapture(hwnd) };
+                    unsafe {
+                        let _ = SetTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER, 16, None);
+                        let _ = InvalidateRect(Some(hwnd), None, false);
+                    }
+                    return LRESULT(0);
+                }
+                WM_LBUTTONDBLCLK => {
+                    let mut should_close = false;
+                    if let Ok(mut slot) = region_selection_state().lock() {
+                        if let Some(state) = slot.as_mut() {
+                            if state.mode == RegionSelectionMode::Edit {
+                                commit_region_selection_state(state);
+                                should_close = true;
+                            }
+                        }
+                    }
+                    if should_close {
+                        unsafe {
+                            let _ = KillTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER);
+                            let _ = ReleaseCapture();
+                            let _ = DestroyWindow(hwnd);
+                        }
+                        return LRESULT(0);
+                    }
+                }
+                WM_MOUSEMOVE => {
+                    let mut changed = false;
+                    if let Ok(mut slot) = region_selection_state().lock() {
+                        if let Some(state) = slot.as_mut() {
+                            if state.dragging {
+                                update_region_selection_drag(
+                                    state,
+                                    loword_i32(lparam),
+                                    hiword_i32(lparam),
+                                );
+                                changed = true;
+                            }
+                        }
+                    }
+                    if changed {
+                        unsafe {
+                            let _ = InvalidateRect(Some(hwnd), None, false);
+                        }
+                    }
+                    return LRESULT(0);
+                }
+                WM_LBUTTONUP => {
+                    let mut should_close = false;
+                    let mut should_invalidate = false;
+                    if let Ok(mut slot) = region_selection_state().lock() {
+                        if let Some(state) = slot.as_mut() {
+                            if state.dragging {
+                                update_region_selection_drag(
+                                    state,
+                                    loword_i32(lparam),
+                                    hiword_i32(lparam),
+                                );
+                                state.dragging = false;
+                                state.operation = RegionSelectionOperation::None;
+                                if state.mode == RegionSelectionMode::Create {
+                                    commit_region_selection_state(state);
+                                    should_close = true;
+                                } else {
+                                    should_invalidate = true;
+                                }
+                            }
+                        }
+                    }
+                    if should_close {
+                        unsafe {
+                            let _ = KillTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER);
+                            let _ = ReleaseCapture();
+                            let _ = DestroyWindow(hwnd);
+                        }
+                    } else if should_invalidate {
+                        unsafe {
+                            let _ = KillTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER);
+                            let _ = ReleaseCapture();
+                            let _ = InvalidateRect(Some(hwnd), None, false);
+                        }
+                    }
+                    return LRESULT(0);
+                }
+                WM_KEYDOWN => {
+                    let key = wparam.0 as u32;
+                    if key == 0x0D || key == 0x1B {
+                        if let Ok(mut slot) = region_selection_state().lock() {
+                            if let Some(state) = slot.as_mut() {
+                                state.done = true;
+                                if key == 0x1B {
+                                    state.canceled = true;
+                                    state.result = None;
+                                } else {
+                                    commit_region_selection_state(state);
+                                }
+                            }
+                        }
+                        unsafe {
+                            let _ = KillTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER);
+                            let _ = ReleaseCapture();
+                            let _ = DestroyWindow(hwnd);
+                        }
+                        return LRESULT(0);
+                    }
+                }
+                WM_TIMER => {
+                    if wparam.0 == REGION_SELECTION_RELEASE_TIMER {
+                        poll_region_selection_mouse_release(hwnd);
+                        return LRESULT(0);
+                    }
+                }
+                WM_PAINT => return unsafe { paint_region_selection_overlay(hwnd) },
+                WM_DESTROY => {
+                    unsafe {
+                        let _ = KillTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER);
+                    }
+                    if let Ok(mut slot) = region_selection_state().lock() {
+                        if let Some(state) = slot.as_mut() {
+                            state.done = true;
+                        }
+                    }
+                    return LRESULT(0);
+                }
+                _ => {}
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+
+        let bounds = virtual_screen_rect();
+        let mode = if initial_rect.is_some() {
+            RegionSelectionMode::Edit
+        } else {
+            RegionSelectionMode::Create
+        };
+        let (left, top, right, bottom) = initial_rect
+            .map(|rect| {
+                let local = PhysicalRect {
+                    left: rect.left - bounds.left,
+                    top: rect.top - bounds.top,
+                    right: rect.right - bounds.left,
+                    bottom: rect.bottom - bounds.top,
+                };
+                let local = normalize_region_selection_rect(
+                    local.left,
+                    local.top,
+                    local.right,
+                    local.bottom,
+                    bounds.width().max(1),
+                    bounds.height().max(1),
+                );
+                (local.left, local.top, local.right, local.bottom)
+            })
+            .unwrap_or((0, 0, 0, 0));
+        {
+            let mut slot = region_selection_state()
+                .lock()
+                .map_err(|_| Win32Error::Api("region selection state lock failed".to_string()))?;
+            *slot = Some(RegionSelectionState {
+                origin_x: bounds.left,
+                origin_y: bounds.top,
+                bounds_w: bounds.width().max(1),
+                bounds_h: bounds.height().max(1),
+                left,
+                top,
+                right,
+                bottom,
+                drag_start_x: 0,
+                drag_start_y: 0,
+                drag_left: left,
+                drag_top: top,
+                drag_right: right,
+                drag_bottom: bottom,
+                mode,
+                operation: RegionSelectionOperation::None,
+                dragging: false,
+                last_drag_update: Instant::now(),
+                done: false,
+                canceled: false,
+                result: None,
+            });
+        }
+
+        let instance = unsafe { GetModuleHandleW(None) }
+            .map_err(|error| Win32Error::Api(format!("GetModuleHandleW failed: {error:?}")))?;
+        let class_name = windows::core::w!("DodbogiRegionSelectionOverlay");
+        let wc = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
+            lpfnWndProc: Some(wnd_proc),
+            hInstance: HINSTANCE(instance.0),
+            lpszClassName: class_name,
+            hCursor: unsafe { LoadCursorW(None, IDC_ARROW).unwrap_or_default() },
+            ..Default::default()
+        };
+        let atom = unsafe { RegisterClassW(&wc) };
+        if atom == 0 {
+            let err = unsafe { GetLastError() };
+            if err.0 != 1410 {
+                return Err(Win32Error::Api(format!(
+                    "RegisterClassW region selection failed: {err:?}"
+                )));
+            }
+        }
+
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED,
+                class_name,
+                windows::core::w!("Dodbogi Region Selection"),
+                WS_POPUP,
+                bounds.left,
+                bounds.top,
+                bounds.width().max(1),
+                bounds.height().max(1),
+                None,
+                None,
+                Some(HINSTANCE(instance.0)),
+                None,
+            )
+        }
+        .map_err(|error| {
+            Win32Error::Api(format!(
+                "CreateWindowExW region selection failed: {error:?}"
+            ))
+        })?;
+        unsafe { SetLayeredWindowAttributes(hwnd, COLORREF(0), 92, LWA_ALPHA) }.map_err(
+            |error| Win32Error::Api(format!("SetLayeredWindowAttributes failed: {error:?}")),
+        )?;
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                bounds.left,
+                bounds.top,
+                bounds.width().max(1),
+                bounds.height().max(1),
+                SWP_SHOWWINDOW,
+            )
+        }
+        .map_err(|error| {
+            Win32Error::Api(format!("SetWindowPos region selection failed: {error:?}"))
+        })?;
+        let _ = unsafe { SetForegroundWindow(hwnd) };
+        let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+
+        let mut msg = windows::Win32::UI::WindowsAndMessaging::MSG::default();
+        loop {
+            while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
+                if msg.message == WM_QUIT {
+                    if let Ok(mut slot) = region_selection_state().lock() {
+                        if let Some(state) = slot.as_mut() {
+                            state.done = true;
+                            state.canceled = true;
+                        }
+                    }
+                    break;
+                }
+                unsafe {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+            poll_region_selection_mouse_release(hwnd);
+            let done = region_selection_state()
+                .lock()
+                .ok()
+                .and_then(|slot| slot.as_ref().map(|state| state.done))
+                .unwrap_or(true);
+            if done {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        if unsafe { IsWindow(Some(hwnd)).as_bool() } {
+            let _ = unsafe { DestroyWindow(hwnd) };
+        }
+        let state = {
+            let mut slot = region_selection_state()
+                .lock()
+                .map_err(|_| Win32Error::Api("region selection state lock failed".to_string()))?;
+            slot.take()
+        };
+        Ok(state
+            .and_then(|state| if state.canceled { None } else { state.result })
+            .map(|rect| RegionSelectionReport { rect }))
+    }
+
+    fn loword_i32(lparam: LPARAM) -> i32 {
+        (lparam.0 as u32 & 0xffff) as i16 as i32
+    }
+
+    fn hiword_i32(lparam: LPARAM) -> i32 {
+        ((lparam.0 as u32 >> 16) & 0xffff) as i16 as i32
+    }
+
+    fn poll_region_selection_mouse_release(hwnd: HWND) {
+        if unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 } {
+            let should_wait = region_selection_state()
+                .lock()
+                .ok()
+                .and_then(|slot| *slot)
+                .map(should_wait_for_region_selection_release)
+                .unwrap_or(false);
+            if should_wait {
+                return;
+            }
+        }
+
+        let mut should_destroy = false;
+        let mut should_invalidate = false;
+        if let Ok(mut slot) = region_selection_state().lock() {
+            if let Some(state) = slot.as_mut() {
+                if !state.dragging {
+                    return;
+                }
+                let mut cursor = POINT::default();
+                if unsafe { GetCursorPos(&mut cursor) }.is_ok() {
+                    update_region_selection_drag(
+                        state,
+                        cursor.x - state.origin_x,
+                        cursor.y - state.origin_y,
+                    );
+                }
+                state.dragging = false;
+                state.operation = RegionSelectionOperation::None;
+                if state.mode == RegionSelectionMode::Create {
+                    commit_region_selection_state(state);
+                    should_destroy = true;
+                } else {
+                    should_invalidate = true;
+                }
+            }
+        }
+
+        if should_destroy {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER);
+                let _ = ReleaseCapture();
+                let _ = DestroyWindow(hwnd);
+            }
+        } else if should_invalidate {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), REGION_SELECTION_RELEASE_TIMER);
+                let _ = ReleaseCapture();
+                let _ = InvalidateRect(Some(hwnd), None, false);
+            }
+        }
+    }
+
+    fn begin_create_region_selection(state: &mut RegionSelectionState, x: i32, y: i32) {
+        let x = x.clamp(0, state.bounds_w);
+        let y = y.clamp(0, state.bounds_h);
+        state.left = x;
+        state.top = y;
+        state.right = x;
+        state.bottom = y;
+        state.drag_start_x = x;
+        state.drag_start_y = y;
+        state.drag_left = x;
+        state.drag_top = y;
+        state.drag_right = x;
+        state.drag_bottom = y;
+        state.operation = RegionSelectionOperation::Create;
+        state.dragging = true;
+        state.last_drag_update = Instant::now();
+    }
+
+    fn begin_edit_region_selection(
+        state: &mut RegionSelectionState,
+        operation: RegionSelectionOperation,
+        x: i32,
+        y: i32,
+    ) {
+        state.drag_start_x = x;
+        state.drag_start_y = y;
+        state.drag_left = state.left;
+        state.drag_top = state.top;
+        state.drag_right = state.right;
+        state.drag_bottom = state.bottom;
+        state.operation = operation;
+        state.dragging = true;
+        state.last_drag_update = Instant::now();
+    }
+
+    fn update_region_selection_drag(state: &mut RegionSelectionState, x: i32, y: i32) {
+        let x = x.clamp(0, state.bounds_w);
+        let y = y.clamp(0, state.bounds_h);
+        state.last_drag_update = Instant::now();
+        match state.operation {
+            RegionSelectionOperation::Create => {
+                let rect = normalize_region_selection_rect(
+                    state.drag_start_x,
+                    state.drag_start_y,
+                    x,
+                    y,
+                    state.bounds_w,
+                    state.bounds_h,
+                );
+                set_region_selection_local_rect(state, rect);
+            }
+            RegionSelectionOperation::Move => {
+                let dx = x - state.drag_start_x;
+                let dy = y - state.drag_start_y;
+                let width = (state.drag_right - state.drag_left).max(REGION_SELECTION_MIN_SIZE);
+                let height = (state.drag_bottom - state.drag_top).max(REGION_SELECTION_MIN_SIZE);
+                let left = (state.drag_left + dx).clamp(0, (state.bounds_w - width).max(0));
+                let top = (state.drag_top + dy).clamp(0, (state.bounds_h - height).max(0));
+                set_region_selection_local_rect(
+                    state,
+                    PhysicalRect {
+                        left,
+                        top,
+                        right: left + width,
+                        bottom: top + height,
+                    },
+                );
+            }
+            RegionSelectionOperation::ResizeLeft
+            | RegionSelectionOperation::ResizeRight
+            | RegionSelectionOperation::ResizeTop
+            | RegionSelectionOperation::ResizeBottom
+            | RegionSelectionOperation::ResizeTopLeft
+            | RegionSelectionOperation::ResizeTopRight
+            | RegionSelectionOperation::ResizeBottomLeft
+            | RegionSelectionOperation::ResizeBottomRight => {
+                let mut left = state.drag_left;
+                let mut top = state.drag_top;
+                let mut right = state.drag_right;
+                let mut bottom = state.drag_bottom;
+                match state.operation {
+                    RegionSelectionOperation::ResizeLeft
+                    | RegionSelectionOperation::ResizeTopLeft
+                    | RegionSelectionOperation::ResizeBottomLeft => left = x,
+                    RegionSelectionOperation::ResizeRight
+                    | RegionSelectionOperation::ResizeTopRight
+                    | RegionSelectionOperation::ResizeBottomRight => right = x,
+                    _ => {}
+                }
+                match state.operation {
+                    RegionSelectionOperation::ResizeTop
+                    | RegionSelectionOperation::ResizeTopLeft
+                    | RegionSelectionOperation::ResizeTopRight => top = y,
+                    RegionSelectionOperation::ResizeBottom
+                    | RegionSelectionOperation::ResizeBottomLeft
+                    | RegionSelectionOperation::ResizeBottomRight => bottom = y,
+                    _ => {}
+                }
+                let rect = normalize_region_selection_rect(
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    state.bounds_w,
+                    state.bounds_h,
+                );
+                set_region_selection_local_rect(state, rect);
+            }
+            RegionSelectionOperation::None => {}
+        }
+    }
+
+    fn normalize_region_selection_rect(
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+        bounds_w: i32,
+        bounds_h: i32,
+    ) -> PhysicalRect {
+        let mut left = left.clamp(0, bounds_w);
+        let mut right = right.clamp(0, bounds_w);
+        let mut top = top.clamp(0, bounds_h);
+        let mut bottom = bottom.clamp(0, bounds_h);
+        if left > right {
+            std::mem::swap(&mut left, &mut right);
+        }
+        if top > bottom {
+            std::mem::swap(&mut top, &mut bottom);
+        }
+        if right - left < REGION_SELECTION_MIN_SIZE {
+            if right >= bounds_w {
+                left = (right - REGION_SELECTION_MIN_SIZE).max(0);
+            } else {
+                right = (left + REGION_SELECTION_MIN_SIZE).min(bounds_w);
+            }
+        }
+        if bottom - top < REGION_SELECTION_MIN_SIZE {
+            if bottom >= bounds_h {
+                top = (bottom - REGION_SELECTION_MIN_SIZE).max(0);
+            } else {
+                bottom = (top + REGION_SELECTION_MIN_SIZE).min(bounds_h);
+            }
+        }
+        PhysicalRect {
+            left,
+            top,
+            right: right.max(left + 1),
+            bottom: bottom.max(top + 1),
+        }
+    }
+
+    fn set_region_selection_local_rect(state: &mut RegionSelectionState, rect: PhysicalRect) {
+        state.left = rect.left;
+        state.top = rect.top;
+        state.right = rect.right;
+        state.bottom = rect.bottom;
+    }
+
+    fn region_selection_local_rect(state: RegionSelectionState) -> PhysicalRect {
+        normalize_region_selection_rect(
+            state.left,
+            state.top,
+            state.right,
+            state.bottom,
+            state.bounds_w,
+            state.bounds_h,
+        )
+    }
+
+    fn should_wait_for_region_selection_release(state: RegionSelectionState) -> bool {
+        if !state.dragging {
+            return false;
+        }
+        if state.mode != RegionSelectionMode::Create {
+            return true;
+        }
+        let rect = region_selection_local_rect(state);
+        let has_meaningful_drag =
+            rect.width() > REGION_SELECTION_MIN_SIZE && rect.height() > REGION_SELECTION_MIN_SIZE;
+        !(has_meaningful_drag
+            && state.last_drag_update.elapsed() >= REGION_SELECTION_CREATE_STALE_RELEASE)
+    }
+
+    fn region_edit_hit_test(
+        state: RegionSelectionState,
+        x: i32,
+        y: i32,
+    ) -> RegionSelectionOperation {
+        let rect = region_selection_local_rect(state);
+        let near_left = (x - rect.left).abs() <= REGION_EDIT_HANDLE_MARGIN;
+        let near_right = (x - rect.right).abs() <= REGION_EDIT_HANDLE_MARGIN;
+        let near_top = (y - rect.top).abs() <= REGION_EDIT_HANDLE_MARGIN;
+        let near_bottom = (y - rect.bottom).abs() <= REGION_EDIT_HANDLE_MARGIN;
+        let vertical_band = y >= rect.top - REGION_EDIT_HANDLE_MARGIN
+            && y <= rect.bottom + REGION_EDIT_HANDLE_MARGIN;
+        let horizontal_band = x >= rect.left - REGION_EDIT_HANDLE_MARGIN
+            && x <= rect.right + REGION_EDIT_HANDLE_MARGIN;
+        if near_left && near_top {
+            return RegionSelectionOperation::ResizeTopLeft;
+        }
+        if near_right && near_top {
+            return RegionSelectionOperation::ResizeTopRight;
+        }
+        if near_left && near_bottom {
+            return RegionSelectionOperation::ResizeBottomLeft;
+        }
+        if near_right && near_bottom {
+            return RegionSelectionOperation::ResizeBottomRight;
+        }
+        if near_left && vertical_band {
+            return RegionSelectionOperation::ResizeLeft;
+        }
+        if near_right && vertical_band {
+            return RegionSelectionOperation::ResizeRight;
+        }
+        if near_top && horizontal_band {
+            return RegionSelectionOperation::ResizeTop;
+        }
+        if near_bottom && horizontal_band {
+            return RegionSelectionOperation::ResizeBottom;
+        }
+        if x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom {
+            return RegionSelectionOperation::Move;
+        }
+        RegionSelectionOperation::None
+    }
+
+    fn selection_state_screen_rect(state: RegionSelectionState) -> PhysicalRect {
+        let rect = region_selection_local_rect(state);
+        PhysicalRect {
+            left: rect.left + state.origin_x,
+            top: rect.top + state.origin_y,
+            right: rect.right + state.origin_x,
+            bottom: rect.bottom + state.origin_y,
+        }
+    }
+
+    fn commit_region_selection_state(state: &mut RegionSelectionState) {
+        let rect = selection_state_screen_rect(*state);
+        state.done = true;
+        state.result = (rect.width() >= REGION_SELECTION_MIN_SIZE
+            && rect.height() >= REGION_SELECTION_MIN_SIZE)
+            .then_some(rect);
+        state.canceled = state.result.is_none();
+    }
+
+    unsafe fn paint_region_selection_overlay(hwnd: HWND) -> LRESULT {
+        let mut ps = PAINTSTRUCT::default();
+        let hdc = BeginPaint(hwnd, &mut ps);
+        let mut client = RECT::default();
+        let _ = GetClientRect(hwnd, &mut client);
+        fill_rect_color(hdc, &client, COLORREF(0x00000000));
+        let state = region_selection_state().lock().ok().and_then(|slot| *slot);
+        if let Some(state) = state {
+            if state.mode == RegionSelectionMode::Edit || state.dragging {
+                let rect = region_selection_local_rect(state);
+                let draw_rect = RECT {
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                };
+                let pen = CreatePen(PS_SOLID, 3, COLORREF(0x00ffffff));
+                let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
+                let old_brush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+                let _ = Rectangle(
+                    hdc,
+                    draw_rect.left,
+                    draw_rect.top,
+                    draw_rect.right,
+                    draw_rect.bottom,
+                );
+                let _ = SelectObject(hdc, old_brush);
+                let _ = SelectObject(hdc, old_pen);
+                let _ = DeleteObject(pen.into());
+                if state.mode == RegionSelectionMode::Edit {
+                    draw_region_selection_handles(hdc, draw_rect);
+                }
+            }
+        }
+        let _ = EndPaint(hwnd, &ps);
+        LRESULT(0)
+    }
+
+    fn draw_region_selection_handles(hdc: HDC, rect: RECT) {
+        let points = [
+            (rect.left, rect.top),
+            ((rect.left + rect.right) / 2, rect.top),
+            (rect.right, rect.top),
+            (rect.left, (rect.top + rect.bottom) / 2),
+            (rect.right, (rect.top + rect.bottom) / 2),
+            (rect.left, rect.bottom),
+            ((rect.left + rect.right) / 2, rect.bottom),
+            (rect.right, rect.bottom),
+        ];
+        let half = REGION_EDIT_HANDLE_SIZE / 2;
+        for (x, y) in points {
+            let handle = RECT {
+                left: x - half,
+                top: y - half,
+                right: x - half + REGION_EDIT_HANDLE_SIZE,
+                bottom: y - half + REGION_EDIT_HANDLE_SIZE,
+            };
+            fill_rect_color(hdc, &handle, COLORREF(0x00ffffff));
+        }
+    }
+
+    #[cfg(test)]
+    mod region_selection_tests {
+        use super::*;
+
+        fn editable_state() -> RegionSelectionState {
+            RegionSelectionState {
+                origin_x: 0,
+                origin_y: 0,
+                bounds_w: 800,
+                bounds_h: 600,
+                left: 100,
+                top: 120,
+                right: 300,
+                bottom: 220,
+                drag_start_x: 0,
+                drag_start_y: 0,
+                drag_left: 100,
+                drag_top: 120,
+                drag_right: 300,
+                drag_bottom: 220,
+                mode: RegionSelectionMode::Edit,
+                operation: RegionSelectionOperation::None,
+                dragging: false,
+                last_drag_update: Instant::now(),
+                done: false,
+                canceled: false,
+                result: None,
+            }
+        }
+
+        #[test]
+        fn region_edit_right_border_drag_resizes_existing_area() {
+            let mut state = editable_state();
+            let hit = region_edit_hit_test(state, 300, 170);
+
+            assert_eq!(hit, RegionSelectionOperation::ResizeRight);
+
+            begin_edit_region_selection(&mut state, hit, 300, 170);
+            update_region_selection_drag(&mut state, 340, 170);
+
+            let rect = region_selection_local_rect(state);
+            assert_eq!(
+                (rect.left, rect.top, rect.right, rect.bottom),
+                (100, 120, 340, 220)
+            );
+        }
+
+        #[test]
+        fn region_edit_inside_drag_moves_existing_area() {
+            let mut state = editable_state();
+            let hit = region_edit_hit_test(state, 150, 160);
+
+            assert_eq!(hit, RegionSelectionOperation::Move);
+
+            begin_edit_region_selection(&mut state, hit, 150, 160);
+            update_region_selection_drag(&mut state, 175, 185);
+
+            let rect = region_selection_local_rect(state);
+            assert_eq!(
+                (rect.left, rect.top, rect.right, rect.bottom),
+                (125, 145, 325, 245)
+            );
+        }
+    }
+
+    pub fn show_user_message(title: &str, message: &str) {
+        let title = wide_null(title);
+        let message = wide_null(message);
+        unsafe {
+            let _ = MessageBoxW(
+                None,
+                PCWSTR(message.as_ptr()),
+                PCWSTR(title.as_ptr()),
+                MB_OK,
+            );
+        }
     }
 
     const CURSOR_OVERLAY_SIZE: i32 = 128;
@@ -3230,8 +5493,7 @@ mod imp {
 
         pub fn poll_message(&self) -> Option<ShellMessage> {
             let msg = next_message()?;
-            let shell_message = self.message_from_win32(&msg);
-            dispatch_message(&msg);
+            let shell_message = self.message_after_dispatch(&msg);
             shell_message
         }
 
@@ -3241,12 +5503,22 @@ mod imp {
                 let Some(msg) = next_message() else {
                     break;
                 };
-                if let Some(shell_message) = self.message_from_win32(&msg) {
+                if let Some(shell_message) = self.message_after_dispatch(&msg) {
                     messages.push(shell_message);
                 }
-                dispatch_message(&msg);
             }
             messages
+        }
+
+        fn message_after_dispatch(
+            &self,
+            msg: &windows::Win32::UI::WindowsAndMessaging::MSG,
+        ) -> Option<ShellMessage> {
+            if msg.message == WM_QUIT {
+                return self.message_from_win32(msg);
+            }
+            dispatch_message(msg);
+            self.message_from_win32(msg)
         }
 
         fn message_from_win32(
@@ -3425,9 +5697,11 @@ mod imp {
 
     pub fn poll_shell_message() -> Option<ShellMessage> {
         let msg = next_message()?;
-        let shell_message = shell_message_from_defaults(&msg);
+        if msg.message == WM_QUIT {
+            return shell_message_from_defaults(&msg);
+        }
         dispatch_message(&msg);
-        shell_message
+        shell_message_from_defaults(&msg)
     }
 
     pub fn drain_shell_messages(limit: usize) -> Vec<ShellMessage> {
@@ -3436,10 +5710,15 @@ mod imp {
             let Some(msg) = next_message() else {
                 break;
             };
-            if let Some(shell_message) = shell_message_from_defaults(&msg) {
+            let shell_message = if msg.message == WM_QUIT {
+                shell_message_from_defaults(&msg)
+            } else {
+                dispatch_message(&msg);
+                shell_message_from_defaults(&msg)
+            };
+            if let Some(shell_message) = shell_message {
                 messages.push(shell_message);
             }
-            dispatch_message(&msg);
         }
         messages
     }
@@ -3818,7 +6097,9 @@ mod imp {
         input_event_kind_name, ControlledInputProbeReport, CursorCaptureReport, InputDeliveryMode,
         InputDeliveryReport, MonitorGeometry, OverlayStyleContract, PhysicalRect,
         PointerMagnifierConfig, PointerMagnifierScreenshotReport, PointerMagnifierUpdateReport,
-        ShellMessage, SourceInputEvent, SourceWindow, SystemHotkeyReport, TrayMenuItem, Win32Error,
+        RegionMagnifierConfig, RegionMagnifierScreenshotReport, RegionMagnifierUpdateReport,
+        RegionSelectionReport, RunningAppSelection, ShellMessage, SourceInputEvent, SourceWindow,
+        SystemHotkeyReport, TrayMenuItem, Win32Error,
     };
     use dodbogi_core::DodbogiSettings;
     use dodbogi_input::InputTransform;
@@ -3829,6 +6110,32 @@ mod imp {
     }
 
     pub fn foreground_or_fallback_source_window() -> Result<SourceWindow, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn foreground_or_fallback_running_app() -> Result<RunningAppSelection, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn running_apps_for_region() -> Result<Vec<RunningAppSelection>, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn select_running_app_for_region() -> Result<Option<RunningAppSelection>, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn screen_rect_topmost_matches_executable(
+        _rect: PhysicalRect,
+        _executable_name: &str,
+    ) -> Result<bool, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn screen_rect_topmost_window_for_executable(
+        _rect: PhysicalRect,
+        _executable_name: &str,
+    ) -> Result<Option<isize>, Win32Error> {
         Err(Win32Error::NotImplemented("Windows-only"))
     }
 
@@ -3949,6 +6256,10 @@ mod imp {
 
         pub fn hide(&mut self) {}
 
+        pub fn set_topmost(&mut self, _topmost: bool) {}
+
+        pub fn follow_target_z_order(&mut self, _target_hwnd: isize) {}
+
         pub fn save_screenshot(
             &mut self,
             _path: &Path,
@@ -3964,6 +6275,58 @@ mod imp {
     ) -> Result<PointerMagnifierScreenshotReport, Win32Error> {
         Err(Win32Error::NotImplemented("Windows-only"))
     }
+
+    pub struct RegionMagnifierWindow;
+
+    impl RegionMagnifierWindow {
+        pub fn create_hidden() -> Result<Self, Win32Error> {
+            Err(Win32Error::NotImplemented("Windows-only"))
+        }
+
+        pub fn update(
+            &mut self,
+            _config: RegionMagnifierConfig,
+        ) -> Result<RegionMagnifierUpdateReport, Win32Error> {
+            Err(Win32Error::NotImplemented("Windows-only"))
+        }
+
+        pub fn hide(&mut self) {}
+
+        pub fn save_screenshot(
+            &mut self,
+            _path: &Path,
+            _config: RegionMagnifierConfig,
+        ) -> Result<RegionMagnifierScreenshotReport, Win32Error> {
+            Err(Win32Error::NotImplemented("Windows-only"))
+        }
+
+        pub fn hwnd(&self) -> isize {
+            0
+        }
+
+        pub fn current_report(&self) -> Result<Option<RegionMagnifierUpdateReport>, Win32Error> {
+            Err(Win32Error::NotImplemented("Windows-only"))
+        }
+    }
+
+    pub fn save_region_magnifier_screenshot(
+        _path: &Path,
+        _config: RegionMagnifierConfig,
+    ) -> Result<RegionMagnifierScreenshotReport, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn select_screen_region() -> Result<Option<RegionSelectionReport>, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn edit_screen_region(
+        _initial_rect: PhysicalRect,
+    ) -> Result<Option<RegionSelectionReport>, Win32Error> {
+        Err(Win32Error::NotImplemented("Windows-only"))
+    }
+
+    pub fn show_user_message(_title: &str, _message: &str) {}
 
     pub fn current_pointer_web_color() -> Result<String, Win32Error> {
         Err(Win32Error::NotImplemented("Windows-only"))
@@ -4113,15 +6476,19 @@ mod tests {
     fn hotkey_registry_registers_and_unregisters_defaults() {
         let mut registry = HotkeyRegistry::default();
         registry.register_defaults();
-        assert_eq!(registry.registered().len(), 8);
+        assert_eq!(registry.registered().len(), 12);
         assert_eq!(registry.registered()[0].accelerator, "Ctrl+Alt+Q");
         assert_eq!(registry.registered()[1].accelerator, "Ctrl+Alt+A");
         assert_eq!(registry.registered()[2].accelerator, "Ctrl+Alt+E");
         assert_eq!(registry.registered()[3].accelerator, "Shift+Alt+Q");
         assert_eq!(registry.registered()[4].accelerator, "Shift+Alt+E");
-        assert_eq!(registry.registered()[5].accelerator, "Ctrl+Alt+C");
-        assert_eq!(registry.registered()[6].accelerator, "Shift+Alt+C");
-        assert_eq!(registry.registered()[7].accelerator, "Ctrl+Alt+R");
+        assert_eq!(registry.registered()[5].accelerator, "Ctrl+Alt+D");
+        assert_eq!(registry.registered()[6].accelerator, "Shift+Alt+D");
+        assert_eq!(registry.registered()[7].accelerator, "Ctrl+Alt+F");
+        assert_eq!(registry.registered()[8].accelerator, "Ctrl+Alt+Z");
+        assert_eq!(registry.registered()[9].accelerator, "Ctrl+Alt+C");
+        assert_eq!(registry.registered()[10].accelerator, "Shift+Alt+C");
+        assert_eq!(registry.registered()[11].accelerator, "Ctrl+Alt+R");
         registry.unregister_all();
         assert!(registry.registered().is_empty());
     }
