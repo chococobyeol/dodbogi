@@ -1334,6 +1334,9 @@ fn register_content_viewport_class() -> Result<(), String> {
                 unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
             }
             WM_MOUSEWHEEL => {
+                if modal_active_for_descendant(hwnd) {
+                    return LRESULT(0);
+                }
                 if let Ok(parent) = unsafe { GetParent(hwnd) } {
                     if !parent.0.is_null() {
                         let _ = unsafe {
@@ -1588,6 +1591,10 @@ fn set_content_scroll(hwnd: HWND, requested: i32) {
 }
 
 fn handle_content_vscroll(hwnd: HWND, wparam: WPARAM) {
+    if modal_active_for_root(hwnd) {
+        SETTINGS_CONTENT_SCROLL_DRAGGING.store(false, Ordering::Relaxed);
+        return;
+    }
     let code = loword(wparam.0) as u32;
     let current = current_content_scroll();
     let page = (content_visible_height(hwnd) * 4 / 5).max(80);
@@ -1761,6 +1768,10 @@ fn invalidate_content_scrollbar(hwnd: HWND) {
 }
 
 fn handle_content_scrollbar_lbutton_down(hwnd: HWND, x: i32, y: i32) -> bool {
+    if modal_active_for_root(hwnd) {
+        SETTINGS_CONTENT_SCROLL_DRAGGING.store(false, Ordering::Relaxed);
+        return false;
+    }
     let Some(track) = content_scrollbar_track_rect(hwnd) else {
         return false;
     };
@@ -1795,6 +1806,14 @@ fn handle_content_scrollbar_mouse_move(hwnd: HWND, _x: i32, y: i32) -> bool {
     if !SETTINGS_CONTENT_SCROLL_DRAGGING.load(Ordering::Relaxed) {
         return false;
     }
+    if modal_active_for_root(hwnd) {
+        SETTINGS_CONTENT_SCROLL_DRAGGING.store(false, Ordering::Relaxed);
+        unsafe {
+            let _ = ReleaseCapture();
+        }
+        invalidate_content_scrollbar(hwnd);
+        return true;
+    }
     let Some(track) = content_scrollbar_track_rect(hwnd) else {
         return true;
     };
@@ -1827,6 +1846,10 @@ fn point_in_rect(x: i32, y: i32, rect: &RECT) -> bool {
 }
 
 fn handle_content_mouse_wheel(hwnd: HWND, wparam: WPARAM) {
+    if modal_active_for_root(hwnd) {
+        SETTINGS_CONTENT_SCROLL_DRAGGING.store(false, Ordering::Relaxed);
+        return;
+    }
     let delta = hiword(wparam.0) as i16 as i32;
     if delta == 0 {
         return;
@@ -3054,9 +3077,44 @@ fn layout_controls(hwnd: HWND) {
 
 fn apply_content_scroll_visibility(hwnd: HWND, layout: &UiLayout) {
     let _ = layout;
+    let modal_active = modal_active_for_root(hwnd);
+    let modal_cover = active_modal_cover_rect(hwnd);
     for id in scrollable_content_control_ids() {
-        let visible = content_control_wants_visible(hwnd, *id);
+        if is_icon_dim_overlay(*id) {
+            continue;
+        }
+        let base_visible = content_control_wants_visible(hwnd, *id);
+        let covered_by_modal = modal_cover
+            .as_ref()
+            .and_then(|modal| {
+                child_frame_rect(hwnd, *id, 0, 0).map(|child| rects_intersect(&child, modal))
+            })
+            .unwrap_or(false);
+        let replaced_by_dim_overlay =
+            modal_active && modal_dim_overlay_for_icon(*id).is_some() && !covered_by_modal;
+        let visible = base_visible && !covered_by_modal && !replaced_by_dim_overlay;
         show_child(hwnd, *id, visible);
+        set_child_enabled(
+            hwnd,
+            *id,
+            base_visible && !modal_active && !covered_by_modal,
+        );
+    }
+    for (icon_id, overlay_id) in modal_dim_icon_pairs() {
+        let covered_by_modal = modal_cover
+            .as_ref()
+            .and_then(|modal| {
+                child_frame_rect(hwnd, *icon_id, 0, 0).map(|child| rects_intersect(&child, modal))
+            })
+            .unwrap_or(false);
+        let overlay_visible =
+            modal_active && !covered_by_modal && content_control_wants_visible(hwnd, *icon_id);
+        show_child(hwnd, *overlay_id, overlay_visible);
+        set_child_enabled(hwnd, *overlay_id, false);
+        if overlay_visible {
+            raise_child(hwnd, *overlay_id);
+            invalidate(get(hwnd, *overlay_id));
+        }
     }
     hide_legacy_action_buttons(hwnd);
     invalidate(get(hwnd, ID_CONTENT_VIEWPORT));
@@ -3184,6 +3242,9 @@ fn layout_region_area_controls_only(hwnd: HWND) {
 
 fn content_control_wants_visible(hwnd: HWND, id: i32) -> bool {
     if is_icon_dim_overlay(id) {
+        return false;
+    }
+    if id == ID_SCREENSHOT_ICON || id == ID_SCREENSHOT_TITLE {
         return false;
     }
     if id == ID_REGION_LIST {
@@ -3360,18 +3421,18 @@ fn move_edit_field(parent: HWND, id: i32, x: i32, y: i32, w: i32, h: i32) {
 
 fn sidebar_layout_state(hwnd: HWND) -> (usize, usize, bool) {
     let Ok(slot) = state_slot().try_lock() else {
-        return (1, 0, false);
+        return (1, 0, modal_active_for_root(hwnd));
     };
     let Some(state) = slot.as_ref() else {
-        return (1, 0, false);
+        return (1, 0, modal_active_for_root(hwnd));
     };
     if state.hwnd != raw_from_hwnd(hwnd) {
-        return (1, 0, false);
+        return (1, 0, modal_active_for_root(hwnd));
     }
     (
         profiles(&state.settings).len(),
         state.selected_index,
-        state.hotkey_panel_visible,
+        state.settings_panel_visible || state.hotkey_panel_visible,
     )
 }
 
@@ -3421,6 +3482,7 @@ fn layout_profile_buttons(
     set_child_enabled(hwnd, ID_ADD_PROFILE, !modal_active);
     set_child_enabled(hwnd, ID_DELETE_PROFILE, false);
     raise_child(hwnd, ID_ADD_PROFILE);
+    invalidate(get(hwnd, ID_ADD_PROFILE));
     invalidate_sidebar(hwnd, layout);
 }
 
@@ -3903,6 +3965,12 @@ fn modal_active_for_root(hwnd: HWND) -> bool {
     };
     state.hwnd == raw_from_hwnd(hwnd)
         && (state.settings_panel_visible || state.hotkey_panel_visible)
+}
+
+fn modal_active_for_descendant(hwnd: HWND) -> bool {
+    settings_root_for_descendant(hwnd)
+        .map(modal_active_for_root)
+        .unwrap_or(false)
 }
 
 fn rect_intersects_viewport(viewport: HWND, rect: &RECT) -> bool {
@@ -5257,6 +5325,9 @@ unsafe extern "system" fn region_listbox_proc(
             }
         }
         WM_MOUSEWHEEL => {
+            if modal_active_for_descendant(hwnd) {
+                return LRESULT(0);
+            }
             if handle_region_list_mouse_wheel(hwnd, wparam) {
                 return LRESULT(0);
             }
@@ -6296,6 +6367,7 @@ fn draw_owner_button(item: &OwnerDrawItem) {
     }
     let selected = (item.item_state & ODS_SELECTED_FLAG) != 0;
     let active_toggle = is_toggle_button(id) && is_toggle_on_text(&get_text(item.hwnd_item));
+    let toolbar_button = is_toolbar_button(id);
     let mut rect = inset_rect(item.rc_item, 2, 2);
     if selected {
         rect.left += 1;
@@ -6306,7 +6378,7 @@ fn draw_owner_button(item: &OwnerDrawItem) {
     fill_rect_color(
         item.hdc,
         &item.rc_item,
-        if disabled {
+        if disabled && !toolbar_button {
             ui_color(UiColor::DisabledBg)
         } else {
             ui_color(UiColor::ControlBg)
@@ -6315,7 +6387,7 @@ fn draw_owner_button(item: &OwnerDrawItem) {
     fill_rect_color(
         item.hdc,
         &rect,
-        if disabled {
+        if disabled && !toolbar_button {
             ui_color(UiColor::DisabledBg)
         } else if selected {
             ui_color(UiColor::Selected)
@@ -6330,7 +6402,7 @@ fn draw_owner_button(item: &OwnerDrawItem) {
         &rect,
         UI_RADIUS,
         UI_STROKE_WIDTH,
-        control_frame_color(disabled),
+        control_frame_color(disabled && !toolbar_button),
     );
     if id == ID_LANGUAGE_COMBO {
         draw_owner_combo(item.hdc, &rect, &get_text(item.hwnd_item), disabled);
@@ -6360,6 +6432,10 @@ fn is_icon_dim_overlay(id: i32) -> bool {
         id,
         ID_HOTKEY_ICON_DIM | ID_SCALE_ICON_DIM | ID_POINTER_ICON_DIM | ID_REGION_ICON_DIM
     )
+}
+
+fn is_toolbar_button(id: i32) -> bool {
+    id == ID_SETTINGS_BUTTON || id == ID_TRAY_BUTTON
 }
 
 fn draw_icon_dim_overlay(item: &OwnerDrawItem) {
@@ -8186,9 +8262,9 @@ fn show_settings_panel(state: &mut SettingsUiState, visible: bool) {
             raise_child(hwnd, ID_LANGUAGE_MENU);
         }
     }
-    update_modal_base_enabled(state);
     layout_profile_buttons_for_state(state);
     refresh_localized_texts(state);
+    update_modal_base_enabled(state);
     invalidate_modal_surfaces(hwnd);
 }
 
@@ -8290,10 +8366,10 @@ fn show_hotkey_panel(state: &mut SettingsUiState, visible: bool) {
     if visible {
         raise_panel_children(hwnd, hotkey_panel_ids());
     }
-    update_modal_base_enabled(state);
     layout_profile_buttons_for_state(state);
     refresh_localized_texts(state);
     refresh_hotkey_panel_texts(state);
+    update_modal_base_enabled(state);
     invalidate_modal_surfaces(hwnd);
     if visible {
         unsafe {
@@ -9987,8 +10063,14 @@ fn modal_covered_base_control_ids() -> &'static [i32] {
         ID_REGION_ADD_BUTTON,
         ID_REGION_TARGET_LABEL,
         ID_REGION_TARGET_TOGGLE,
+        ID_REGION_TARGET_ALL_BUTTON,
+        ID_REGION_TARGET_APP_MODE_BUTTON,
         ID_REGION_TARGET_APP_LABEL,
         ID_REGION_TARGET_APP_BUTTON,
+        ID_REGION_BORDER_TOGGLE_LABEL,
+        ID_REGION_BORDER_TOGGLE,
+        ID_REGION_MOUSE_PASSTHROUGH_LABEL,
+        ID_REGION_MOUSE_PASSTHROUGH_TOGGLE,
         ID_POINTER_ICON,
         ID_REGION_ICON,
         ID_HOTKEY_SCALE_GROUP_LABEL,
@@ -10036,13 +10118,14 @@ fn update_modal_base_enabled(state: &SettingsUiState) {
         None
     };
     for id in modal_covered_base_control_ids() {
+        let base_visible = content_control_wants_visible(hwnd, *id);
         let covered_by_modal = cover_rect
             .as_ref()
             .and_then(|modal| {
                 child_frame_rect(hwnd, *id, 0, 0).map(|child| rects_intersect(&child, modal))
             })
             .unwrap_or(false);
-        show_child(hwnd, *id, !covered_by_modal);
+        show_child(hwnd, *id, base_visible && !covered_by_modal);
         set_child_enabled(hwnd, *id, !modal_active && !covered_by_modal);
     }
     for id in modal_dim_only_control_ids() {
@@ -10098,6 +10181,12 @@ fn modal_dim_icon_pairs() -> &'static [(i32, i32)] {
         (ID_POINTER_ICON, ID_POINTER_ICON_DIM),
         (ID_REGION_ICON, ID_REGION_ICON_DIM),
     ]
+}
+
+fn modal_dim_overlay_for_icon(id: i32) -> Option<i32> {
+    modal_dim_icon_pairs()
+        .iter()
+        .find_map(|(icon_id, overlay_id)| (*icon_id == id).then_some(*overlay_id))
 }
 
 fn rects_intersect(a: &RECT, b: &RECT) -> bool {
