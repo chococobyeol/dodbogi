@@ -84,6 +84,7 @@ const REGION_AREA_ROW_HEIGHT: i32 = 28;
 const REGION_AREA_EMPTY_HEIGHT: i32 = 48;
 const REGION_AREA_BUTTON_ROW_HEIGHT: i32 = 42;
 const REGION_AREA_BOX_PAD: i32 = 8;
+const REGION_AREA_LABEL_GAP: i32 = 8;
 const SECTION_ICON_X_OFFSET: i32 = 20;
 const SECTION_TITLE_X_OFFSET: i32 = 64;
 const SECTION_TITLE_Y_OFFSET: i32 = 17;
@@ -3114,7 +3115,7 @@ fn region_area_visible_rows(count: usize) -> i32 {
 
 fn region_area_box_rect(region: RECT, count: usize) -> RECT {
     let left = section_label_x(region);
-    let top = section_first_row_y(region) + 58;
+    let top = section_first_row_y(region) + 58 + REGION_AREA_LABEL_GAP;
     let list_h = if count == 0 {
         REGION_AREA_EMPTY_HEIGHT
     } else {
