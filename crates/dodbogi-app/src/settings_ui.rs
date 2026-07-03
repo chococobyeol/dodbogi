@@ -1918,6 +1918,11 @@ fn control_dimmed_by_modal(child: HWND) -> bool {
     if is_modal_control_id(id) {
         return false;
     }
+    if SETTINGS_PANEL_PAINT_VISIBLE.load(Ordering::Relaxed)
+        || HOTKEY_PANEL_PAINT_VISIBLE.load(Ordering::Relaxed)
+    {
+        return true;
+    }
     settings_root_for_descendant(child)
         .and_then(active_modal_cover_rect)
         .is_some()
