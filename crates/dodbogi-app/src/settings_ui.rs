@@ -47,12 +47,12 @@ use windows::{
                 SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, BN_CLICKED,
                 CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, EN_CHANGE, EN_KILLFOCUS,
                 ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, ES_READONLY, GWLP_WNDPROC, HMENU,
-                HWND_TOP, HWND_TOPMOST, IDC_ARROW, IDYES, IMAGE_BITMAP, IMAGE_ICON, LBN_DBLCLK,
-                LBN_SELCHANGE, LBS_NOTIFY, LB_ADDSTRING, LB_GETCURSEL, LB_RESETCONTENT,
-                LB_SETCURSEL, LR_LOADFROMFILE, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_YESNO,
-                MINMAXINFO, SET_WINDOW_POS_FLAGS, STM_SETIMAGE, SWP_NOACTIVATE, SWP_NOMOVE,
-                SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_RESTORE, SW_SHOW,
-                WINDOW_EX_STYLE, WINDOW_STYLE, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CREATE,
+                HWND_TOP, IDC_ARROW, IDYES, IMAGE_BITMAP, IMAGE_ICON, LBN_DBLCLK, LBN_SELCHANGE,
+                LBS_NOTIFY, LB_ADDSTRING, LB_GETCURSEL, LB_RESETCONTENT, LB_SETCURSEL,
+                LR_LOADFROMFILE, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_YESNO, MINMAXINFO,
+                SET_WINDOW_POS_FLAGS, STM_SETIMAGE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE,
+                WINDOW_STYLE, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CREATE,
                 WM_CTLCOLORSTATIC, WM_DESTROY, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN,
                 WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
                 WM_NCCREATE, WM_NCLBUTTONDOWN, WM_PAINT, WM_PARENTNOTIFY, WM_SETFONT, WM_SETICON,
@@ -80,6 +80,10 @@ const CONTENT_SCROLLBAR_GAP: i32 = 8;
 const SCROLLBAR_TRACK_WIDTH: i32 = 8;
 const SCROLLBAR_THUMB_MIN_HEIGHT: i32 = 44;
 const REGION_LIST_SCROLLBAR_W: i32 = 10;
+const REGION_AREA_ROW_HEIGHT: i32 = 28;
+const REGION_AREA_EMPTY_HEIGHT: i32 = 48;
+const REGION_AREA_BUTTON_ROW_HEIGHT: i32 = 42;
+const REGION_AREA_BOX_PAD: i32 = 8;
 const SECTION_ICON_X_OFFSET: i32 = 20;
 const SECTION_TITLE_X_OFFSET: i32 = 64;
 const SECTION_TITLE_Y_OFFSET: i32 = 17;
@@ -258,6 +262,7 @@ const ID_REGION_BORDER_TOGGLE_LABEL: i32 = 1152;
 const ID_REGION_BORDER_TOGGLE: i32 = 1153;
 const ID_REGION_MOUSE_PASSTHROUGH_LABEL: i32 = 1154;
 const ID_REGION_MOUSE_PASSTHROUGH_TOGGLE: i32 = 1155;
+const ID_REGION_EMPTY_LABEL: i32 = 1156;
 
 const ID_SETTINGS_PANEL_BG: i32 = 1098;
 const ID_SETTINGS_PANEL_TITLE: i32 = 1099;
@@ -332,6 +337,7 @@ enum UiString {
     ToggleOff,
     RegionDefaultScale,
     RegionAreas,
+    RegionAreasEmpty,
     RegionAdd,
     RegionTarget,
     RegionTargetApp,
@@ -502,7 +508,7 @@ impl SettingsUiWindow {
         unsafe {
             let _ = SetWindowPos(
                 hwnd,
-                Some(HWND_TOPMOST),
+                Some(HWND_TOP),
                 0,
                 0,
                 0,
@@ -959,14 +965,18 @@ fn ui_text(lang: &str, key: UiString) -> &'static str {
         (false, UiString::ToggleOff) => "\u{aebc}\u{c9d0}",
         (true, UiString::RegionDefaultScale) => "Default zoom scale",
         (false, UiString::RegionDefaultScale) => {
-            "\u{d655}\u{b300} \u{ae30}\u{bcf8} \u{bc30}\u{c728}"
+            "\u{ae30}\u{bcf8} \u{d655}\u{b300} \u{bc30}\u{c728}"
         }
         (true, UiString::RegionAreas) => "Zoom regions",
         (false, UiString::RegionAreas) => "\u{d655}\u{b300} \u{c601}\u{c5ed}",
-        (true, UiString::RegionAdd) => "Add region",
-        (false, UiString::RegionAdd) => "\u{c601}\u{c5ed}\u{cd94}\u{ac00}",
-        (true, UiString::RegionTarget) => "Zoom target",
-        (false, UiString::RegionTarget) => "\u{d655}\u{b300} \u{b300}\u{c0c1}",
+        (true, UiString::RegionAreasEmpty) => "No zoom regions are registered.",
+        (false, UiString::RegionAreasEmpty) => {
+            "\u{b4f1}\u{b85d}\u{b41c} \u{d655}\u{b300} \u{c601}\u{c5ed}\u{c774} \u{c5c6}\u{c2b5}\u{b2c8}\u{b2e4}."
+        }
+        (true, UiString::RegionAdd) => "+ Add region",
+        (false, UiString::RegionAdd) => "+ \u{c601}\u{c5ed} \u{cd94}\u{ac00}",
+        (true, UiString::RegionTarget) => "Apply target",
+        (false, UiString::RegionTarget) => "\u{c801}\u{c6a9} \u{b300}\u{c0c1}",
         (true, UiString::RegionTargetApp) => "Selected app",
         (false, UiString::RegionTargetApp) => "\u{c120}\u{d0dd} \u{c571}",
         (true, UiString::RegionTargetAppButton) => "Choose app",
@@ -983,9 +993,9 @@ fn ui_text(lang: &str, key: UiString) -> &'static str {
         (false, UiString::RegionBorderVisible) => {
             "\u{d655}\u{b300}\u{cc3d} \u{d14c}\u{b450}\u{b9ac} \u{d45c}\u{c2dc}"
         }
-        (true, UiString::RegionMousePassthrough) => "Mouse input passthrough",
+        (true, UiString::RegionMousePassthrough) => "Ignore mouse input",
         (false, UiString::RegionMousePassthrough) => {
-            "\u{b9c8}\u{c6b0}\u{c2a4} \u{c785}\u{b825} \u{d1b5}\u{acfc}"
+            "\u{b9c8}\u{c6b0}\u{c2a4} \u{c785}\u{b825} \u{bb34}\u{c2dc}"
         }
     }
 }
@@ -1637,17 +1647,17 @@ fn draw_content_scrollbar(hdc: HDC, hwnd: HWND) {
 }
 
 fn draw_pixel_scroll_track(hdc: HDC, rect: &RECT) {
-    fill_rect_color(hdc, rect, rgb(255, 255, 255));
-    draw_pixel_rect_outline(hdc, rect, rgb(18, 31, 39), 1);
+    fill_rect_color(hdc, rect, ui_color(UiColor::ControlBg));
+    draw_pixel_rect_outline(hdc, rect, ui_color(UiColor::Stroke), 1);
     let inner = inset_rect(*rect, 2, 2);
     if inner.right > inner.left && inner.bottom > inner.top {
-        fill_rect_color(hdc, &inner, rgb(238, 242, 232));
+        fill_rect_color(hdc, &inner, ui_color(UiColor::ScrollTrack));
     }
 }
 
 fn draw_pixel_scroll_thumb(hdc: HDC, rect: &RECT) {
-    fill_rect_color(hdc, rect, rgb(226, 232, 219));
-    draw_pixel_rect_outline(hdc, rect, rgb(18, 31, 39), 1);
+    fill_rect_color(hdc, rect, ui_color(UiColor::ToggleActive));
+    draw_pixel_rect_outline(hdc, rect, ui_color(UiColor::Stroke), 1);
     let mid_y = rect.top + (rect.bottom - rect.top) / 2;
     let grip = RECT {
         left: rect.left + 3,
@@ -1656,7 +1666,7 @@ fn draw_pixel_scroll_thumb(hdc: HDC, rect: &RECT) {
         bottom: mid_y,
     };
     if grip.right > grip.left {
-        fill_rect_color(hdc, &grip, rgb(120, 132, 112));
+        fill_rect_color(hdc, &grip, ui_color(UiColor::TextMuted));
     }
 }
 
@@ -1795,13 +1805,46 @@ fn handle_content_mouse_wheel(hwnd: HWND, wparam: WPARAM) {
 fn erase_background(hwnd: HWND, hdc: HDC) {
     let mut client = RECT::default();
     let _ = unsafe { GetClientRect(hwnd, &mut client) };
-    fill_rect_color(hdc, &client, rgb(255, 254, 249));
+    fill_rect_color(hdc, &client, ui_color(UiColor::AppBg));
 }
 
 fn erase_viewport_background(hwnd: HWND, hdc: HDC) {
     let mut client = RECT::default();
     let _ = unsafe { GetClientRect(hwnd, &mut client) };
-    fill_rect_color(hdc, &client, rgb(255, 255, 255));
+    fill_rect_color(hdc, &client, ui_color(UiColor::PanelBg));
+}
+
+#[derive(Clone, Copy)]
+enum UiColor {
+    AppBg,
+    SidebarBg,
+    PanelBg,
+    ControlBg,
+    Stroke,
+    Selected,
+    ToggleActive,
+    DisabledBg,
+    Text,
+    TextMuted,
+    TextWeak,
+    ScrollTrack,
+}
+
+fn ui_color(color: UiColor) -> COLORREF {
+    match color {
+        UiColor::AppBg => rgb(252, 251, 248),
+        UiColor::SidebarBg => rgb(255, 255, 255),
+        UiColor::PanelBg => rgb(255, 255, 255),
+        UiColor::ControlBg => rgb(255, 255, 255),
+        UiColor::Stroke => rgb(17, 17, 17),
+        UiColor::Selected => rgb(247, 244, 234),
+        UiColor::ToggleActive => rgb(247, 244, 234),
+        UiColor::DisabledBg => rgb(247, 244, 234),
+        UiColor::Text => rgb(17, 17, 17),
+        UiColor::TextMuted => rgb(85, 85, 85),
+        UiColor::TextWeak => rgb(138, 138, 138),
+        UiColor::ScrollTrack => rgb(247, 244, 234),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -2010,9 +2053,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_HOTKEY_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2045,9 +2088,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_POINTER_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2071,9 +2114,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_REGION_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2106,9 +2149,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_WINDOW_SCREENSHOT_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2132,9 +2175,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_POINTER_SCREENSHOT_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2158,9 +2201,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_REGION_SCREENSHOT_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2193,9 +2236,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_POINTER_COLOR_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2219,9 +2262,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_POINTER_COLOR_COPY_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2245,9 +2288,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_POINTER_CURSOR_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2280,9 +2323,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_REGION_SELECT_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2305,9 +2348,9 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_REGION_DELETE_LABEL,
-        shortcut_label_x + 14,
+        shortcut_label_x,
         shortcut_y,
-        shortcut_label_w - 14,
+        shortcut_label_w,
         shortcut_row_h,
     );
     move_child(
@@ -2544,10 +2587,11 @@ fn layout_controls(hwnd: HWND) {
     let region_label_w = (region_value_x - region_label_x - 10).max(120);
     let region_row1_y = section_first_row_y(region);
     let region_row2_y = region_row1_y + 34;
-    let region_rows_top = region_row2_y + 30;
-    let region_list_h = 118;
-    let region_add_y = region_rows_top + region_list_h + 8;
-    let region_target_y = region_add_y + 40;
+    let region_count = current_region_list_count(hwnd);
+    let region_box = region_area_box_rect(region, region_count);
+    let region_list_rect = region_area_list_rect(region_box, region_count);
+    let region_add_rect = region_area_add_button_rect(region_box);
+    let region_target_y = region_box.bottom + 28;
     let region_target_app_y = region_target_y + 36;
     let region_border_y = region_target_app_y + 36;
     let region_mouse_y = region_border_y + 34;
@@ -2628,7 +2672,6 @@ fn layout_controls(hwnd: HWND) {
         show_child(hwnd, id, false);
     }
 
-    let row_text_w = (region.right - region_label_x - 128).max(220);
     for row in 0..REGION_VISIBLE_ROWS {
         move_child(hwnd, ID_REGION_ROW_TEXT_BASE + row as i32, 1, 1, 1, 1);
         show_child(hwnd, ID_REGION_ROW_TEXT_BASE + row as i32, false);
@@ -2638,10 +2681,18 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_REGION_LIST,
-        region_label_x,
-        region_rows_top,
-        (region.right - region_label_x - 28).max(row_text_w),
-        region_list_h,
+        region_list_rect.left,
+        region_list_rect.top,
+        region_list_rect.right - region_list_rect.left,
+        region_list_rect.bottom - region_list_rect.top,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_EMPTY_LABEL,
+        region_list_rect.left + 10,
+        region_list_rect.top + ((region_list_rect.bottom - region_list_rect.top - 24) / 2).max(0),
+        region_list_rect.right - region_list_rect.left - 20,
+        24,
     );
     move_child(hwnd, ID_REGION_SCROLL_UP, 1, 1, 1, 1);
     show_child(hwnd, ID_REGION_SCROLL_UP, false);
@@ -2650,10 +2701,10 @@ fn layout_controls(hwnd: HWND) {
     move_child(
         hwnd,
         ID_REGION_ADD_BUTTON,
-        region_label_x,
-        region_add_y,
-        180,
-        30,
+        region_add_rect.left,
+        region_add_rect.top,
+        region_add_rect.right - region_add_rect.left,
+        region_add_rect.bottom - region_add_rect.top,
     );
     move_child(
         hwnd,
@@ -2889,7 +2940,133 @@ fn apply_content_scroll_visibility(hwnd: HWND, layout: &UiLayout) {
     invalidate(get(hwnd, ID_CONTENT_VIEWPORT));
 }
 
+fn layout_region_area_controls_only(hwnd: HWND) {
+    let layout = current_layout(hwnd);
+    let shortcut = layout.window_group;
+    let shortcut_label_x = section_label_x(shortcut);
+    let form_value_x = (shortcut.right - 172).max(shortcut_label_x + 210);
+    let region = layout.region_row;
+    let region_label_x = section_label_x(region);
+    let region_value_x = form_value_x.min(region.right - 122);
+    let region_label_w = (region_value_x - region_label_x - 10).max(120);
+    let region_count = current_region_list_count(hwnd);
+    let region_box = region_area_box_rect(region, region_count);
+    let region_list_rect = region_area_list_rect(region_box, region_count);
+    let region_add_rect = region_area_add_button_rect(region_box);
+    let region_target_y = region_box.bottom + 28;
+    let region_target_app_y = region_target_y + 36;
+    let region_border_y = region_target_app_y + 36;
+    let region_mouse_y = region_border_y + 34;
+    let target_segment_w = 62;
+    let region_target_value_x = region_value_x - 2;
+    let edit_h = 24;
+
+    move_child(
+        hwnd,
+        ID_REGION_LIST,
+        region_list_rect.left,
+        region_list_rect.top,
+        region_list_rect.right - region_list_rect.left,
+        region_list_rect.bottom - region_list_rect.top,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_EMPTY_LABEL,
+        region_list_rect.left + 10,
+        region_list_rect.top + ((region_list_rect.bottom - region_list_rect.top - 24) / 2).max(0),
+        region_list_rect.right - region_list_rect.left - 20,
+        24,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_ADD_BUTTON,
+        region_add_rect.left,
+        region_add_rect.top,
+        region_add_rect.right - region_add_rect.left,
+        region_add_rect.bottom - region_add_rect.top,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_TARGET_LABEL,
+        region_label_x,
+        region_target_y,
+        region_label_w,
+        24,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_TARGET_ALL_BUTTON,
+        region_target_value_x,
+        region_target_y - 4,
+        target_segment_w,
+        30,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_TARGET_APP_MODE_BUTTON,
+        region_target_value_x + target_segment_w,
+        region_target_y - 4,
+        target_segment_w,
+        30,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_TARGET_APP_LABEL,
+        region_label_x,
+        region_target_app_y,
+        region_label_w,
+        24,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_TARGET_APP_BUTTON,
+        region_target_value_x,
+        region_target_app_y - 4,
+        target_segment_w * 2,
+        30,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_BORDER_TOGGLE_LABEL,
+        region_label_x,
+        region_border_y,
+        region_label_w,
+        24,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_BORDER_TOGGLE,
+        region_value_x - 2,
+        region_border_y - 4,
+        56,
+        edit_h,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_MOUSE_PASSTHROUGH_LABEL,
+        region_label_x,
+        region_mouse_y,
+        region_label_w,
+        24,
+    );
+    move_child(
+        hwnd,
+        ID_REGION_MOUSE_PASSTHROUGH_TOGGLE,
+        region_value_x - 2,
+        region_mouse_y - 4,
+        56,
+        edit_h,
+    );
+    invalidate(get(hwnd, ID_CONTENT_VIEWPORT));
+}
+
 fn content_control_wants_visible(hwnd: HWND, id: i32) -> bool {
+    if id == ID_REGION_LIST {
+        return current_region_list_count(hwnd) > 0;
+    }
+    if id == ID_REGION_EMPTY_LABEL {
+        return current_region_list_count(hwnd) == 0;
+    }
     if id == ID_REGION_TARGET_APP_LABEL || id == ID_REGION_TARGET_APP_BUTTON {
         return displayed_region_target_mode(hwnd) == RegionMagnifierTargetMode::SelectedApp;
     }
@@ -2900,6 +3077,83 @@ fn content_control_wants_visible(hwnd: HWND, id: i32) -> bool {
         return false;
     }
     true
+}
+
+fn current_region_list_count(hwnd: HWND) -> usize {
+    let list = get(hwnd, ID_REGION_LIST);
+    if !list.0.is_null() {
+        let count = send(list, LB_GETCOUNT_MSG, 0, 0);
+        if count > 0 {
+            return count as usize;
+        }
+    }
+    let Some(root) = settings_root_for_descendant(hwnd) else {
+        return 0;
+    };
+    let Ok(slot) = state_slot().try_lock() else {
+        return 0;
+    };
+    let Some(state) = slot.as_ref() else {
+        return 0;
+    };
+    if state.hwnd != raw_from_hwnd(root) {
+        return 0;
+    }
+    profile_at(&state.settings, state.selected_index)
+        .map(|profile| profile.region_magnifier_areas().len())
+        .unwrap_or(0)
+}
+
+fn region_area_visible_rows(count: usize) -> i32 {
+    if count == 0 {
+        0
+    } else {
+        count.min(REGION_VISIBLE_ROWS) as i32
+    }
+}
+
+fn region_area_box_rect(region: RECT, count: usize) -> RECT {
+    let left = section_label_x(region);
+    let top = section_first_row_y(region) + 58;
+    let list_h = if count == 0 {
+        REGION_AREA_EMPTY_HEIGHT
+    } else {
+        region_area_visible_rows(count) * REGION_AREA_ROW_HEIGHT
+    };
+    RECT {
+        left,
+        top,
+        right: region.right - 28,
+        bottom: top + REGION_AREA_BOX_PAD * 2 + list_h + REGION_AREA_BUTTON_ROW_HEIGHT,
+    }
+}
+
+fn region_area_list_rect(box_rect: RECT, count: usize) -> RECT {
+    let list_h = if count == 0 {
+        REGION_AREA_EMPTY_HEIGHT
+    } else {
+        region_area_visible_rows(count) * REGION_AREA_ROW_HEIGHT
+    };
+    RECT {
+        left: box_rect.left + REGION_AREA_BOX_PAD,
+        top: box_rect.top + REGION_AREA_BOX_PAD,
+        right: box_rect.right - REGION_AREA_BOX_PAD,
+        bottom: box_rect.top + REGION_AREA_BOX_PAD + list_h,
+    }
+}
+
+fn region_area_add_button_rect(box_rect: RECT) -> RECT {
+    let button_w = ((box_rect.right - box_rect.left) / 2).clamp(150, 220);
+    let button_h = 26;
+    let left = box_rect.left + ((box_rect.right - box_rect.left - button_w) / 2).max(0);
+    let top = box_rect.bottom - REGION_AREA_BUTTON_ROW_HEIGHT
+        + (REGION_AREA_BUTTON_ROW_HEIGHT - button_h) / 2;
+    RECT {
+        left,
+        top,
+        right: left + button_w,
+        bottom: top + button_h,
+    }
 }
 
 fn region_target_mode_cache_value(mode: RegionMagnifierTargetMode) -> isize {
@@ -3201,7 +3455,7 @@ fn draw_group_title(hdc: HDC, rect: &RECT, title: &str) {
             bottom: rect.top + 49,
         };
         let _ = SetBkMode(hdc, TRANSPARENT);
-        let _ = SetTextColor(hdc, rgb(0, 0, 0));
+        let _ = SetTextColor(hdc, ui_color(UiColor::Text));
         let old_font = SelectObject(hdc, sketch_heading_font_object());
         let _ = DrawTextW(
             hdc,
@@ -3218,9 +3472,8 @@ fn paint_settings_window(hwnd: HWND) {
         let mut ps = PAINTSTRUCT::default();
         let hdc = BeginPaint(hwnd, &mut ps);
         let _ = SetBkMode(hdc, TRANSPARENT);
-        let white_brush = HBRUSH(GetStockObject(WHITE_BRUSH).0);
         let layout = current_layout(hwnd);
-        let _ = FillRect(hdc, &layout.content_panel, white_brush);
+        fill_rect_color(hdc, &layout.content_panel, ui_color(UiColor::PanelBg));
         sketch_round_rect(hdc, &layout.content_panel, UI_RADIUS, UI_STROKE_WIDTH);
         draw_content_scrollbar(hdc, hwnd);
         let list_frame = RECT {
@@ -3229,7 +3482,7 @@ fn paint_settings_window(hwnd: HWND) {
             right: layout.sidebar_x + layout.sidebar_w,
             bottom: layout.sidebar_y + layout.sidebar_h,
         };
-        let _ = FillRect(hdc, &list_frame, white_brush);
+        fill_rect_color(hdc, &list_frame, ui_color(UiColor::SidebarBg));
         sketch_round_rect(hdc, &list_frame, UI_RADIUS, UI_STROKE_WIDTH);
         let _ = EndPaint(hwnd, &ps);
     }
@@ -3308,6 +3561,18 @@ fn paint_content_viewport(hwnd: HWND) {
                 translate_rect(layout.region_row, -viewport_origin.x, -viewport_origin.y),
                 modal_cover,
             );
+            let region_area_box = translate_rect(
+                region_area_box_rect(layout.region_row, current_region_list_count(hwnd)),
+                -viewport_origin.x,
+                -viewport_origin.y,
+            );
+            if modal_cover
+                .as_ref()
+                .map(|cover| !rects_intersect(&region_area_box, cover))
+                .unwrap_or(true)
+            {
+                draw_region_area_container(hdc, &region_area_box);
+            }
             for id in [
                 ID_SCALE_EDIT,
                 ID_POINTER_SCALE_EDIT,
@@ -3345,6 +3610,22 @@ fn paint_content_viewport(hwnd: HWND) {
     }
 }
 
+fn draw_region_area_container(hdc: HDC, rect: &RECT) {
+    fill_rect_color(hdc, rect, ui_color(UiColor::ControlBg));
+    sketch_round_rect(hdc, rect, UI_RADIUS, UI_STROKE_WIDTH);
+    let divider_y = rect.bottom - REGION_AREA_BUTTON_ROW_HEIGHT;
+    fill_rect_color(
+        hdc,
+        &RECT {
+            left: rect.left + UI_STROKE_WIDTH,
+            top: divider_y,
+            right: rect.right - UI_STROKE_WIDTH,
+            bottom: divider_y + UI_STROKE_WIDTH,
+        },
+        ui_color(UiColor::Stroke),
+    );
+}
+
 fn draw_section_separator(hdc: HDC, rect: &RECT) {
     let line = RECT {
         left: section_label_x(*rect),
@@ -3352,7 +3633,7 @@ fn draw_section_separator(hdc: HDC, rect: &RECT) {
         right: rect.right - 2,
         bottom: section_separator_y(*rect) + 2,
     };
-    fill_rect_color(hdc, &line, rgb(18, 31, 39));
+    fill_rect_color(hdc, &line, ui_color(UiColor::Stroke));
 }
 
 fn section_label_x(rect: RECT) -> i32 {
@@ -3471,7 +3752,7 @@ fn viewport_origin_in_parent(parent: HWND, viewport: HWND) -> POINT {
 
 fn sketch_round_rect(hdc: HDC, rect: &RECT, radius: i32, width: i32) {
     unsafe {
-        let pen = CreatePen(PS_SOLID, width.max(1), rgb(18, 31, 39));
+        let pen = CreatePen(PS_SOLID, width.max(1), ui_color(UiColor::Stroke));
         let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
         let old_brush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
         if radius <= 0 {
@@ -3494,11 +3775,7 @@ fn sketch_round_rect(hdc: HDC, rect: &RECT, radius: i32, width: i32) {
 }
 
 fn draw_input_frame(hdc: HDC, rect: &RECT) {
-    unsafe {
-        let bg = CreateSolidBrush(rgb(255, 255, 255));
-        let _ = FillRect(hdc, rect, bg);
-        let _ = DeleteObject(bg.into());
-    }
+    fill_rect_color(hdc, rect, ui_color(UiColor::ControlBg));
     sketch_round_rect(hdc, rect, INPUT_RADIUS, UI_STROKE_WIDTH);
 }
 
@@ -3695,7 +3972,7 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
     create_static(hwnd, "", 580, 257, 220, 24, ID_WINDOW_SCREENSHOT_PATH_EDIT)?;
     create_button(
         hwnd,
-        "嶺뚢돦堉싮뇡?뗮돦??⒱뵛",
+        "癲ル슓??젆??눀???룱???깅탿",
         ID_WINDOW_SCREENSHOT_BROWSE,
         805,
         256,
@@ -3741,7 +4018,7 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
     create_edit(hwnd, ID_POINTER_SCREENSHOT_PATH_EDIT, 580, 289, 220, 28)?;
     create_button(
         hwnd,
-        "嶺뚢돦堉싮뇡?뗮돦??⒱뵛",
+        "癲ル슓??젆??눀???룱???깅탿",
         ID_POINTER_SCREENSHOT_BROWSE,
         805,
         288,
@@ -3949,6 +4226,15 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
     create_button(hwnd, "Up", ID_REGION_SCROLL_UP, 740, 662, 54, 26)?;
     create_button(hwnd, "Down", ID_REGION_SCROLL_DOWN, 740, 692, 54, 26)?;
     create_region_listbox(hwnd, ID_REGION_LIST, 376, 662, 360, 116)?;
+    create_static(
+        hwnd,
+        "\u{b4f1}\u{b85d}\u{b41c} \u{d655}\u{b300} \u{c601}\u{c5ed}\u{c774} \u{c5c6}\u{c2b5}\u{b2c8}\u{b2e4}.",
+        386,
+        662,
+        340,
+        24,
+        ID_REGION_EMPTY_LABEL,
+    )?;
     create_button(hwnd, "Add region", ID_REGION_ADD_BUTTON, 376, 786, 180, 30)?;
     create_static(hwnd, "Target", 376, 824, 120, 24, ID_REGION_TARGET_LABEL)?;
     create_button(
@@ -4581,7 +4867,7 @@ fn create_region_listbox(
         w!("LISTBOX"),
         "",
         style(
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP,
             &[
                 LBS_NOTIFY,
                 LBS_OWNERDRAWFIXED_STYLE,
@@ -5296,9 +5582,9 @@ fn draw_owner_region_item(item: &OwnerDrawItem) {
     let mut content_row = item.rc_item;
     content_row.right -= REGION_LIST_SCROLLBAR_W + 4;
     let rect = inset_rect(content_row, 2, 2);
-    fill_rect_color(item.hdc, &item.rc_item, rgb(255, 255, 255));
+    fill_rect_color(item.hdc, &item.rc_item, ui_color(UiColor::ControlBg));
     if selected {
-        fill_rect_color(item.hdc, &rect, rgb(232, 238, 226));
+        fill_rect_color(item.hdc, &rect, ui_color(UiColor::Selected));
         sketch_round_rect(item.hdc, &rect, UI_RADIUS, UI_STROKE_WIDTH);
     }
     let hovered = hovered_region_index_for_region_list(item.hwnd_item)
@@ -5317,9 +5603,9 @@ fn draw_owner_region_item(item: &OwnerDrawItem) {
         &text,
         &text_rect,
         if selected {
-            rgb(0, 0, 0)
+            ui_color(UiColor::Text)
         } else {
-            rgb(35, 35, 35)
+            ui_color(UiColor::TextMuted)
         },
     );
     if hovered || selected {
@@ -5339,7 +5625,7 @@ fn draw_region_list_scrollbar_for_item(item: &OwnerDrawItem) {
         right: track.right,
         bottom: item.rc_item.bottom,
     };
-    fill_rect_color(item.hdc, &row_track, rgb(238, 242, 232));
+    fill_rect_color(item.hdc, &row_track, ui_color(UiColor::ScrollTrack));
 
     let Some(thumb) = region_list_scrollbar_thumb_rect(item.hwnd_item) else {
         return;
@@ -5612,15 +5898,18 @@ fn draw_owner_profile_item(item: &OwnerDrawItem) {
         return;
     }
     let selected = (item.item_state & ODS_SELECTED_FLAG) != 0;
+    let disabled = (item.item_state & ODS_DISABLED_FLAG) != 0;
     let rect = inset_rect(item.rc_item, 2, 2);
     let editing = selected && rename_edit_visible_for_profile_list(item.hwnd_item);
     fill_rect_color(
         item.hdc,
         &item.rc_item,
-        if selected {
-            rgb(244, 246, 240)
+        if disabled {
+            ui_color(UiColor::DisabledBg)
+        } else if selected {
+            ui_color(UiColor::Selected)
         } else {
-            rgb(255, 255, 255)
+            ui_color(UiColor::ControlBg)
         },
     );
     if selected {
@@ -5647,10 +5936,12 @@ fn draw_owner_profile_item(item: &OwnerDrawItem) {
             item.hdc,
             &text,
             &text_rect,
-            if selected {
-                rgb(0, 0, 0)
+            if disabled {
+                ui_color(UiColor::TextWeak)
+            } else if selected {
+                ui_color(UiColor::Text)
             } else {
-                rgb(35, 35, 35)
+                ui_color(UiColor::TextMuted)
             },
         );
     }
@@ -5677,7 +5968,7 @@ fn draw_owner_button(item: &OwnerDrawItem) {
         return;
     }
     if is_panel_border_line(id) {
-        fill_rect_color(item.hdc, &item.rc_item, rgb(18, 31, 39));
+        fill_rect_color(item.hdc, &item.rc_item, ui_color(UiColor::Stroke));
         return;
     }
     if is_scale_arrow_button(id) {
@@ -5685,7 +5976,7 @@ fn draw_owner_button(item: &OwnerDrawItem) {
         return;
     }
     if id == ID_DELETE_PROFILE {
-        fill_rect_color(item.hdc, &item.rc_item, rgb(244, 246, 240));
+        fill_rect_color(item.hdc, &item.rc_item, ui_color(UiColor::SidebarBg));
         let rect = inset_rect(item.rc_item, 3, 3);
         let _ = draw_profile_action_icon(item.hdc, &rect, id, disabled);
         return;
@@ -5695,6 +5986,7 @@ fn draw_owner_button(item: &OwnerDrawItem) {
         return;
     }
     let selected = (item.item_state & ODS_SELECTED_FLAG) != 0;
+    let active_toggle = is_toggle_button(id) && is_toggle_on_text(&get_text(item.hwnd_item));
     let mut rect = inset_rect(item.rc_item, 2, 2);
     if selected {
         rect.left += 1;
@@ -5706,20 +5998,22 @@ fn draw_owner_button(item: &OwnerDrawItem) {
         item.hdc,
         &item.rc_item,
         if disabled {
-            rgb(250, 250, 246)
+            ui_color(UiColor::DisabledBg)
         } else {
-            rgb(255, 255, 255)
+            ui_color(UiColor::ControlBg)
         },
     );
     fill_rect_color(
         item.hdc,
         &rect,
         if disabled {
-            rgb(244, 244, 240)
+            ui_color(UiColor::DisabledBg)
         } else if selected {
-            rgb(235, 241, 232)
+            ui_color(UiColor::Selected)
+        } else if active_toggle {
+            ui_color(UiColor::ToggleActive)
         } else {
-            rgb(255, 255, 255)
+            ui_color(UiColor::ControlBg)
         },
     );
     sketch_round_rect(item.hdc, &rect, UI_RADIUS, UI_STROKE_WIDTH);
@@ -5739,17 +6033,17 @@ fn draw_owner_button(item: &OwnerDrawItem) {
         &label,
         &rect,
         if disabled {
-            rgb(160, 160, 160)
+            ui_color(UiColor::TextWeak)
         } else {
-            rgb(0, 0, 0)
+            ui_color(UiColor::Text)
         },
     );
 }
 
 fn draw_panel_background_item(item: &OwnerDrawItem) {
-    fill_rect_color(item.hdc, &item.rc_item, rgb(255, 255, 255));
+    fill_rect_color(item.hdc, &item.rc_item, ui_color(UiColor::PanelBg));
     let rect = inset_rect(item.rc_item, 3, 3);
-    draw_pixel_rect_outline(item.hdc, &rect, rgb(18, 31, 39), UI_STROKE_WIDTH);
+    draw_pixel_rect_outline(item.hdc, &rect, ui_color(UiColor::Stroke), UI_STROKE_WIDTH);
 }
 
 fn is_panel_border_line(id: i32) -> bool {
@@ -5768,6 +6062,21 @@ fn is_panel_border_line(id: i32) -> bool {
 
 fn is_region_target_mode_button(id: i32) -> bool {
     id == ID_REGION_TARGET_ALL_BUTTON || id == ID_REGION_TARGET_APP_MODE_BUTTON
+}
+
+fn is_toggle_button(id: i32) -> bool {
+    matches!(
+        id,
+        ID_POINTER_COLOR_TOGGLE
+            | ID_POINTER_CURSOR_TOGGLE
+            | ID_REGION_BORDER_TOGGLE
+            | ID_REGION_MOUSE_PASSTHROUGH_TOGGLE
+    )
+}
+
+fn is_toggle_on_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.eq_ignore_ascii_case("on") || trimmed == "\u{cf1c}\u{c9d0}"
 }
 
 fn draw_region_target_mode_button(item: &OwnerDrawItem, disabled: bool) {
@@ -5791,16 +6100,16 @@ fn draw_region_target_mode_button(item: &OwnerDrawItem, disabled: bool) {
         bottom: item.rc_item.bottom - 2,
     };
     let fill = inset_rect(rect, 2, 2);
-    fill_rect_color(item.hdc, &item.rc_item, rgb(255, 255, 255));
+    fill_rect_color(item.hdc, &item.rc_item, ui_color(UiColor::ControlBg));
     fill_rect_color(
         item.hdc,
         &fill,
         if disabled {
-            rgb(246, 246, 242)
+            ui_color(UiColor::DisabledBg)
         } else if active {
-            rgb(226, 232, 219)
+            ui_color(UiColor::ToggleActive)
         } else {
-            rgb(255, 255, 255)
+            ui_color(UiColor::ControlBg)
         },
     );
     draw_segmented_mode_button_border(item.hdc, &rect, id);
@@ -5822,15 +6131,15 @@ fn draw_region_target_mode_button(item: &OwnerDrawItem, disabled: bool) {
             bottom: rect.bottom,
         },
         if disabled {
-            rgb(150, 150, 150)
+            ui_color(UiColor::TextWeak)
         } else {
-            rgb(0, 0, 0)
+            ui_color(UiColor::Text)
         },
     );
 }
 
 fn draw_segmented_mode_button_border(hdc: HDC, rect: &RECT, id: i32) {
-    let color = rgb(18, 31, 39);
+    let color = ui_color(UiColor::Stroke);
     let width = UI_STROKE_WIDTH.max(1);
     let segment_w = (rect.right - rect.left).max(1);
     let mut combined = *rect;
@@ -5891,9 +6200,9 @@ fn draw_profile_action_icon(hdc: HDC, rect: &RECT, id: i32, disabled: bool) -> b
         return false;
     }
     let color = if disabled {
-        rgb(150, 150, 150)
+        ui_color(UiColor::TextWeak)
     } else {
-        rgb(14, 25, 32)
+        ui_color(UiColor::Stroke)
     };
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
@@ -5922,15 +6231,15 @@ fn draw_profile_action_icon(hdc: HDC, rect: &RECT, id: i32, disabled: bool) -> b
 
 fn draw_scale_spinner_half(hdc: HDC, rect: &RECT, id: i32, disabled: bool) {
     let bg = if disabled {
-        rgb(244, 244, 240)
+        ui_color(UiColor::DisabledBg)
     } else {
-        rgb(255, 255, 255)
+        ui_color(UiColor::ControlBg)
     };
     fill_rect_color(hdc, rect, bg);
     let line = if disabled {
-        rgb(150, 150, 150)
+        ui_color(UiColor::TextWeak)
     } else {
-        rgb(18, 31, 39)
+        ui_color(UiColor::Stroke)
     };
     let up = id == ID_SCALE_UP || id == ID_POINTER_SCALE_UP || id == ID_REGION_SCALE_UP;
     let w = rect.right - rect.left;
@@ -6038,9 +6347,9 @@ fn draw_scale_spinner_half(hdc: HDC, rect: &RECT, id: i32, disabled: bool) {
     }
 
     let color = if disabled {
-        rgb(150, 150, 150)
+        ui_color(UiColor::TextWeak)
     } else {
-        rgb(14, 25, 32)
+        ui_color(UiColor::Stroke)
     };
     let cx = rect.left + w / 2;
     let arrow_top = rect.top + ((h - 5) / 2).max(2);
@@ -6059,9 +6368,9 @@ fn draw_scale_spinner_half(hdc: HDC, rect: &RECT, id: i32, disabled: bool) {
 
 fn draw_owner_combo(hdc: HDC, rect: &RECT, label: &str, disabled: bool) {
     let text_color = if disabled {
-        rgb(160, 160, 160)
+        ui_color(UiColor::TextWeak)
     } else {
-        rgb(0, 0, 0)
+        ui_color(UiColor::Text)
     };
     draw_text_left(hdc, label, rect.left + 12, rect.top + 7, text_color);
     let arrow_left = rect.right - 34;
@@ -6071,13 +6380,13 @@ fn draw_owner_combo(hdc: HDC, rect: &RECT, label: &str, disabled: bool) {
         right: arrow_left + UI_STROKE_WIDTH,
         bottom: rect.bottom - 3,
     };
-    fill_rect_color(hdc, &divider, rgb(18, 31, 39));
+    fill_rect_color(hdc, &divider, ui_color(UiColor::Stroke));
     let cx = arrow_left + 17;
     let cy = rect.top + ((rect.bottom - rect.top) / 2) - 2;
     let color = if disabled {
-        rgb(150, 150, 150)
+        ui_color(UiColor::TextWeak)
     } else {
-        rgb(18, 31, 39)
+        ui_color(UiColor::Stroke)
     };
     for row in 0..5 {
         let half = 4 - row;
@@ -6877,6 +7186,10 @@ fn refresh_localized_texts(state: &mut SettingsUiState) {
         ui_text(lang, UiString::RegionAreas),
     );
     set_text(
+        get(hwnd, ID_REGION_EMPTY_LABEL),
+        ui_text(lang, UiString::RegionAreasEmpty),
+    );
+    set_text(
         get(hwnd, ID_REGION_SELECT_BUTTON),
         ui_text(lang, UiString::RegionSelect),
     );
@@ -7101,11 +7414,16 @@ fn refresh_profile_controls(state: &mut SettingsUiState) {
     }
     if !regions.is_empty() {
         let _ = send(list, LB_SETCURSEL, regions.len() - 1, 0);
+        let top_index = regions.len().saturating_sub(REGION_VISIBLE_ROWS);
+        let _ = send(list, LB_SETTOPINDEX_MSG, top_index, 0);
     }
     set_redraw(list, true);
     unsafe {
         let _ = RedrawWindow(Some(list), None, None, RDW_INVALIDATE | RDW_UPDATENOW);
     }
+    show_child(hwnd, ID_REGION_LIST, !regions.is_empty());
+    show_child(hwnd, ID_REGION_EMPTY_LABEL, regions.is_empty());
+    layout_region_area_controls_only(hwnd);
     for row in 0..REGION_VISIBLE_ROWS {
         let text_id = ID_REGION_ROW_TEXT_BASE + row as i32;
         let delete_id = ID_REGION_ROW_DELETE_BASE + row as i32;
@@ -8945,6 +9263,7 @@ fn control_ids() -> &'static [i32] {
         ID_REGION_SCROLL_UP,
         ID_REGION_SCROLL_DOWN,
         ID_REGION_LIST,
+        ID_REGION_EMPTY_LABEL,
         ID_POINTER_ICON,
         ID_REGION_ICON,
         ID_HOTKEY_SCALE_GROUP_LABEL,
@@ -9042,6 +9361,7 @@ fn scrollable_content_control_ids() -> &'static [i32] {
         ID_REGION_SCALE_DOWN,
         ID_REGION_AREA_LABEL,
         ID_REGION_LIST,
+        ID_REGION_EMPTY_LABEL,
         ID_REGION_ADD_BUTTON,
         ID_REGION_TARGET_LABEL,
         ID_REGION_TARGET_TOGGLE,
@@ -9219,6 +9539,7 @@ fn modal_covered_base_control_ids() -> &'static [i32] {
         ID_REGION_CURRENT_LABEL,
         ID_REGION_CURRENT_VALUE,
         ID_REGION_LIST,
+        ID_REGION_EMPTY_LABEL,
         ID_REGION_ADD_BUTTON,
         ID_REGION_TARGET_LABEL,
         ID_REGION_TARGET_TOGGLE,
