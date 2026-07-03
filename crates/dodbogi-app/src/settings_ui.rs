@@ -41,10 +41,10 @@ use windows::{
             WindowsAndMessaging::{
                 CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, EnumChildWindows,
                 GetClientRect, GetCursorPos, GetDlgCtrlID, GetDlgItem, GetForegroundWindow,
-                GetParent, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, IsWindow,
-                IsWindowVisible, KillTimer, LoadCursorW, LoadImageW, MessageBoxW, PostMessageW,
-                RegisterClassW, SendMessageW, SetForegroundWindow, SetParent, SetTimer,
-                SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, BN_CLICKED,
+                GetParent, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+                IsWindow, IsWindowVisible, KillTimer, LoadCursorW, LoadImageW, MessageBoxW,
+                PostMessageW, RegisterClassW, SendMessageW, SetForegroundWindow, SetParent,
+                SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, BN_CLICKED,
                 CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, EN_CHANGE, EN_KILLFOCUS,
                 ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, ES_READONLY, GWLP_WNDPROC, HMENU,
                 HWND_TOP, IDC_ARROW, IDYES, IMAGE_BITMAP, IMAGE_ICON, LBN_DBLCLK, LBN_SELCHANGE,
@@ -52,13 +52,13 @@ use windows::{
                 LR_LOADFROMFILE, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_YESNO, MINMAXINFO,
                 SET_WINDOW_POS_FLAGS, STM_SETIMAGE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
                 SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE,
-                WINDOW_STYLE, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CREATE,
-                WM_CTLCOLORSTATIC, WM_DESTROY, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN,
-                WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-                WM_NCCREATE, WM_NCLBUTTONDOWN, WM_PAINT, WM_PARENTNOTIFY, WM_SETFONT, WM_SETICON,
-                WM_SIZE, WM_SYSKEYDOWN, WM_TIMER, WM_VSCROLL, WNDCLASSW, WNDPROC, WS_BORDER,
-                WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_OVERLAPPEDWINDOW, WS_TABSTOP,
-                WS_VISIBLE, WS_VSCROLL,
+                WINDOW_LONG_PTR_INDEX, WINDOW_STYLE, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND,
+                WM_CREATE, WM_CTLCOLORSTATIC, WM_DESTROY, WM_ERASEBKGND, WM_GETMINMAXINFO,
+                WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+                WM_MOUSEWHEEL, WM_NCCREATE, WM_NCLBUTTONDOWN, WM_PAINT, WM_PARENTNOTIFY,
+                WM_SETFONT, WM_SETICON, WM_SIZE, WM_SYSKEYDOWN, WM_TIMER, WM_VSCROLL, WNDCLASSW,
+                WNDPROC, WS_BORDER, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+                WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
             },
         },
     },
@@ -81,7 +81,7 @@ const SCROLLBAR_TRACK_WIDTH: i32 = 8;
 const SCROLLBAR_THUMB_MIN_HEIGHT: i32 = 44;
 const REGION_LIST_SCROLLBAR_W: i32 = 10;
 const REGION_AREA_ROW_HEIGHT: i32 = 28;
-const REGION_AREA_EMPTY_HEIGHT: i32 = 48;
+const REGION_AREA_EMPTY_HEIGHT: i32 = REGION_AREA_ROW_HEIGHT;
 const REGION_AREA_BUTTON_ROW_HEIGHT: i32 = 42;
 const REGION_AREA_BOX_PAD: i32 = 8;
 const REGION_AREA_LABEL_GAP: i32 = 8;
@@ -92,7 +92,10 @@ const SECTION_SEPARATOR_TOP_OFFSET: i32 = 54;
 const SECTION_FIRST_ROW_TOP_OFFSET: i32 = 68;
 const FORM_ROW_GAP: i32 = 28;
 const FORM_ROW_HEIGHT: i32 = 24;
-const HOTKEY_GROUP_HEIGHT: i32 = 340;
+const HOTKEY_SUBGROUP_LABEL_HEIGHT: i32 = 14;
+const HOTKEY_SUBGROUP_CONTENT_GAP: i32 = 5;
+const HOTKEY_SUBGROUP_GAP: i32 = 8;
+const HOTKEY_GROUP_HEIGHT: i32 = 352;
 const WINDOW_ZOOM_GROUP_HEIGHT: i32 = section_group_height(1);
 const POINTER_GROUP_HEIGHT: i32 = section_group_height(4);
 const REGION_GROUP_HEIGHT: i32 = 468;
@@ -132,6 +135,8 @@ const LB_GETCOUNT_MSG: u32 = 0x018B;
 const LB_GETTOPINDEX_MSG: u32 = 0x018E;
 const LB_SETTOPINDEX_MSG: u32 = 0x0197;
 const LB_GETITEMRECT_MSG: u32 = 0x0198;
+const GWL_STYLE_INDEX: i32 = -16;
+const WS_DISABLED_BITS: isize = 0x08000000;
 const ODS_SELECTED_FLAG: u32 = 0x0001;
 const ODS_DISABLED_FLAG: u32 = 0x0004;
 const UI_STROKE_WIDTH: i32 = 2;
@@ -1139,7 +1144,9 @@ fn register_window_class() -> Result<(), String> {
             WM_CTLCOLORSTATIC => unsafe {
                 let hdc = HDC(wparam.0 as *mut _);
                 let _ = SetBkMode(hdc, TRANSPARENT);
-                let child_id = GetDlgCtrlID(HWND(lparam.0 as *mut _));
+                let child = HWND(lparam.0 as *mut _);
+                let child_id = GetDlgCtrlID(child);
+                let _ = SetTextColor(hdc, static_text_color(child));
                 let brush = if child_id == ID_SETTINGS_PANEL_BG || child_id == ID_HOTKEY_PANEL_BG {
                     GetStockObject(WHITE_BRUSH)
                 } else {
@@ -1300,7 +1307,9 @@ fn register_content_viewport_class() -> Result<(), String> {
             }
             WM_CTLCOLORSTATIC => unsafe {
                 let hdc = HDC(wparam.0 as *mut _);
+                let child = HWND(lparam.0 as *mut _);
                 let _ = SetBkMode(hdc, TRANSPARENT);
+                let _ = SetTextColor(hdc, static_text_color(child));
                 LRESULT(GetStockObject(WHITE_BRUSH).0 as isize)
             },
             WM_DRAWITEM_MSG => {
@@ -1811,6 +1820,42 @@ fn erase_viewport_background(hwnd: HWND, hdc: HDC) {
     fill_rect_color(hdc, &client, ui_color(UiColor::PanelBg));
 }
 
+fn static_text_color(child: HWND) -> COLORREF {
+    if control_dimmed_by_modal(child) {
+        return ui_color(UiColor::TextWeak);
+    }
+    if child.0.is_null() || child_window_enabled(child) {
+        ui_color(UiColor::Text)
+    } else {
+        ui_color(UiColor::TextWeak)
+    }
+}
+
+fn child_window_enabled(child: HWND) -> bool {
+    if child.0.is_null() {
+        return false;
+    }
+    (unsafe { GetWindowLongPtrW(child, WINDOW_LONG_PTR_INDEX(GWL_STYLE_INDEX)) } & WS_DISABLED_BITS)
+        == 0
+}
+
+fn control_dimmed_by_modal(child: HWND) -> bool {
+    if child.0.is_null() {
+        return false;
+    }
+    let id = unsafe { GetDlgCtrlID(child) };
+    if is_modal_control_id(id) {
+        return false;
+    }
+    settings_root_for_descendant(child)
+        .and_then(active_modal_cover_rect)
+        .is_some()
+}
+
+fn is_modal_control_id(id: i32) -> bool {
+    settings_panel_ids().contains(&id) || hotkey_panel_ids().contains(&id)
+}
+
 #[derive(Clone, Copy)]
 enum UiColor {
     AppBg,
@@ -1829,7 +1874,7 @@ enum UiColor {
 
 fn ui_color(color: UiColor) -> COLORREF {
     match color {
-        UiColor::AppBg => rgb(252, 251, 248),
+        UiColor::AppBg => rgb(255, 255, 255),
         UiColor::SidebarBg => rgb(255, 255, 255),
         UiColor::PanelBg => rgb(255, 255, 255),
         UiColor::ControlBg => rgb(255, 255, 255),
@@ -2026,7 +2071,7 @@ fn layout_controls(hwnd: HWND) {
     let shortcut_label_w = (shortcut_value_x - shortcut_label_x - 10).max(150);
     let shortcut_value_w = (shortcut.right - shortcut_value_x - 24).clamp(116, 172);
     let shortcut_row_h = 17;
-    let shortcut_section_h = 15;
+    let shortcut_section_h = HOTKEY_SUBGROUP_LABEL_HEIGHT;
     let shortcut_row_gap = 0;
     let mut shortcut_y = section_first_row_y(shortcut);
 
@@ -2046,7 +2091,7 @@ fn layout_controls(hwnd: HWND) {
         shortcut_label_w,
         shortcut_section_h,
     );
-    shortcut_y += shortcut_section_h + 1;
+    shortcut_y += shortcut_section_h + HOTKEY_SUBGROUP_CONTENT_GAP;
     move_child(
         hwnd,
         ID_HOTKEY_LABEL,
@@ -2133,7 +2178,7 @@ fn layout_controls(hwnd: HWND) {
         1,
     );
 
-    shortcut_y += shortcut_row_h + 5;
+    shortcut_y += shortcut_row_h + HOTKEY_SUBGROUP_GAP;
     move_child(
         hwnd,
         ID_HOTKEY_SCREENSHOT_GROUP_LABEL,
@@ -2142,7 +2187,7 @@ fn layout_controls(hwnd: HWND) {
         shortcut_label_w,
         shortcut_section_h,
     );
-    shortcut_y += shortcut_section_h + 1;
+    shortcut_y += shortcut_section_h + HOTKEY_SUBGROUP_CONTENT_GAP;
     move_child(
         hwnd,
         ID_WINDOW_SCREENSHOT_LABEL,
@@ -2220,7 +2265,7 @@ fn layout_controls(hwnd: HWND) {
         1,
     );
 
-    shortcut_y += shortcut_row_h + 5;
+    shortcut_y += shortcut_row_h + HOTKEY_SUBGROUP_GAP;
     move_child(
         hwnd,
         ID_HOTKEY_POINTER_OPTION_GROUP_LABEL,
@@ -2229,7 +2274,7 @@ fn layout_controls(hwnd: HWND) {
         shortcut_label_w,
         shortcut_section_h,
     );
-    shortcut_y += shortcut_section_h + 1;
+    shortcut_y += shortcut_section_h + HOTKEY_SUBGROUP_CONTENT_GAP;
     move_child(
         hwnd,
         ID_POINTER_COLOR_LABEL,
@@ -2307,7 +2352,7 @@ fn layout_controls(hwnd: HWND) {
         1,
     );
 
-    shortcut_y += shortcut_row_h + 5;
+    shortcut_y += shortcut_row_h + HOTKEY_SUBGROUP_GAP;
     move_child(
         hwnd,
         ID_HOTKEY_REGION_OPTION_GROUP_LABEL,
@@ -2316,7 +2361,7 @@ fn layout_controls(hwnd: HWND) {
         shortcut_label_w,
         shortcut_section_h,
     );
-    shortcut_y += shortcut_section_h + 1;
+    shortcut_y += shortcut_section_h + HOTKEY_SUBGROUP_CONTENT_GAP;
     move_child(
         hwnd,
         ID_REGION_SELECT_LABEL,
@@ -3441,7 +3486,7 @@ fn is_settings_panel_visible_for(hwnd: HWND) -> bool {
     state.hwnd == raw_from_hwnd(hwnd) && state.settings_panel_visible
 }
 
-fn draw_group_title(hdc: HDC, rect: &RECT, title: &str) {
+fn draw_group_title_with_color(hdc: HDC, rect: &RECT, title: &str, color: COLORREF) {
     unsafe {
         let mut text = wide_null(title);
         let text_len = text.len().saturating_sub(1);
@@ -3452,7 +3497,7 @@ fn draw_group_title(hdc: HDC, rect: &RECT, title: &str) {
             bottom: rect.top + 49,
         };
         let _ = SetBkMode(hdc, TRANSPARENT);
-        let _ = SetTextColor(hdc, ui_color(UiColor::Text));
+        let _ = SetTextColor(hdc, color);
         let old_font = SelectObject(hdc, sketch_heading_font_object());
         let _ = DrawTextW(
             hdc,
@@ -3498,18 +3543,31 @@ fn paint_content_viewport(hwnd: HWND) {
             let viewport_origin = viewport_origin_in_parent(parent, hwnd);
             let modal_cover = active_modal_cover_rect(parent)
                 .map(|rect| translate_rect(rect, -viewport_origin.x, -viewport_origin.y));
+            let dimmed = modal_cover.is_some();
+            let title_color = if dimmed {
+                ui_color(UiColor::TextWeak)
+            } else {
+                ui_color(UiColor::Text)
+            };
+            let separator_color = if dimmed {
+                ui_color(UiColor::DisabledBg)
+            } else {
+                ui_color(UiColor::Stroke)
+            };
             draw_group_title_clipped_uncovered(
                 hdc,
                 hwnd,
                 translate_rect(layout.window_group, -viewport_origin.x, -viewport_origin.y),
                 ui_text(&lang, UiString::ShortcutSettings),
                 modal_cover,
+                title_color,
             );
             draw_section_separator_clipped_uncovered(
                 hdc,
                 hwnd,
                 translate_rect(layout.window_group, -viewport_origin.x, -viewport_origin.y),
                 modal_cover,
+                separator_color,
             );
             draw_group_title_clipped_uncovered(
                 hdc,
@@ -3517,12 +3575,14 @@ fn paint_content_viewport(hwnd: HWND) {
                 translate_rect(layout.pointer_row, -viewport_origin.x, -viewport_origin.y),
                 ui_text(&lang, UiString::WindowZoom),
                 modal_cover,
+                title_color,
             );
             draw_section_separator_clipped_uncovered(
                 hdc,
                 hwnd,
                 translate_rect(layout.pointer_row, -viewport_origin.x, -viewport_origin.y),
                 modal_cover,
+                separator_color,
             );
             draw_group_title_clipped_uncovered(
                 hdc,
@@ -3534,6 +3594,7 @@ fn paint_content_viewport(hwnd: HWND) {
                 ),
                 ui_text(&lang, UiString::PointerZoom),
                 modal_cover,
+                title_color,
             );
             draw_section_separator_clipped_uncovered(
                 hdc,
@@ -3544,6 +3605,7 @@ fn paint_content_viewport(hwnd: HWND) {
                     -viewport_origin.y,
                 ),
                 modal_cover,
+                separator_color,
             );
             draw_group_title_clipped_uncovered(
                 hdc,
@@ -3551,12 +3613,14 @@ fn paint_content_viewport(hwnd: HWND) {
                 translate_rect(layout.region_row, -viewport_origin.x, -viewport_origin.y),
                 ui_text(&lang, UiString::RegionZoom),
                 modal_cover,
+                title_color,
             );
             draw_section_separator_clipped_uncovered(
                 hdc,
                 hwnd,
                 translate_rect(layout.region_row, -viewport_origin.x, -viewport_origin.y),
                 modal_cover,
+                separator_color,
             );
             let region_area_box = translate_rect(
                 region_area_box_rect(layout.region_row, current_region_list_count(hwnd)),
@@ -3623,14 +3687,14 @@ fn draw_region_area_container(hdc: HDC, rect: &RECT) {
     );
 }
 
-fn draw_section_separator(hdc: HDC, rect: &RECT) {
+fn draw_section_separator_with_color(hdc: HDC, rect: &RECT, color: COLORREF) {
     let line = RECT {
         left: section_label_x(*rect),
         top: section_separator_y(*rect),
         right: rect.right - 2,
         bottom: section_separator_y(*rect) + 2,
     };
-    fill_rect_color(hdc, &line, ui_color(UiColor::Stroke));
+    fill_rect_color(hdc, &line, color);
 }
 
 fn section_label_x(rect: RECT) -> i32 {
@@ -3645,15 +3709,26 @@ fn section_first_row_y(rect: RECT) -> i32 {
     rect.top + SECTION_FIRST_ROW_TOP_OFFSET
 }
 
-fn draw_group_title_clipped(hdc: HDC, viewport: HWND, rect: RECT, title: &str) {
+fn draw_group_title_clipped_with_color(
+    hdc: HDC,
+    viewport: HWND,
+    rect: RECT,
+    title: &str,
+    color: COLORREF,
+) {
     if rect_intersects_viewport(viewport, &rect) {
-        draw_group_title(hdc, &rect, title);
+        draw_group_title_with_color(hdc, &rect, title, color);
     }
 }
 
-fn draw_section_separator_clipped(hdc: HDC, viewport: HWND, rect: RECT) {
+fn draw_section_separator_clipped_with_color(
+    hdc: HDC,
+    viewport: HWND,
+    rect: RECT,
+    color: COLORREF,
+) {
     if rect_intersects_viewport(viewport, &rect) {
-        draw_section_separator(hdc, &rect);
+        draw_section_separator_with_color(hdc, &rect, color);
     }
 }
 
@@ -3663,6 +3738,7 @@ fn draw_group_title_clipped_uncovered(
     rect: RECT,
     title: &str,
     cover: Option<RECT>,
+    color: COLORREF,
 ) {
     if cover
         .as_ref()
@@ -3670,7 +3746,7 @@ fn draw_group_title_clipped_uncovered(
     {
         return;
     }
-    draw_group_title_clipped(hdc, viewport, rect, title);
+    draw_group_title_clipped_with_color(hdc, viewport, rect, title, color);
 }
 
 fn draw_section_separator_clipped_uncovered(
@@ -3678,6 +3754,7 @@ fn draw_section_separator_clipped_uncovered(
     viewport: HWND,
     rect: RECT,
     cover: Option<RECT>,
+    color: COLORREF,
 ) {
     let separator = RECT {
         left: section_label_x(rect),
@@ -3691,7 +3768,7 @@ fn draw_section_separator_clipped_uncovered(
     {
         return;
     }
-    draw_section_separator_clipped(hdc, viewport, rect);
+    draw_section_separator_clipped_with_color(hdc, viewport, rect, color);
 }
 
 fn active_modal_cover_rect(hwnd: HWND) -> Option<RECT> {
@@ -4366,6 +4443,13 @@ fn apply_default_font(hwnd: HWND) {
             let _ = send(child, WM_SETFONT, heading.0 as usize, 1);
         }
     }
+    let subgroup = sketch_subgroup_font_object();
+    for id in hotkey_subgroup_label_ids() {
+        let child = get(hwnd, *id);
+        if !child.0.is_null() {
+            let _ = send(child, WM_SETFONT, subgroup.0 as usize, 1);
+        }
+    }
     let path_font = path_font_object();
     for id in [
         ID_WINDOW_SCREENSHOT_PATH_LABEL,
@@ -4448,6 +4532,41 @@ fn sketch_heading_font_object() -> HGDIOBJ {
                 0,
                 0,
                 700,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                DEFAULT_QUALITY,
+                DEFAULT_PITCH.0 as u32,
+                PCWSTR(face.as_ptr()),
+            )
+            .0 as isize
+        }
+    });
+    if raw == 0 {
+        unsafe { GetStockObject(DEFAULT_GUI_FONT) }
+    } else {
+        HGDIOBJ(raw as *mut _)
+    }
+}
+
+fn sketch_subgroup_font_object() -> HGDIOBJ {
+    static FONT_HANDLE: OnceLock<isize> = OnceLock::new();
+    let raw = *FONT_HANDLE.get_or_init(|| {
+        let face = wide_null(if ensure_ui_font_registered() {
+            UI_FONT_FACE
+        } else {
+            "GulimChe"
+        });
+        unsafe {
+            CreateFontW(
+                -13,
+                0,
+                0,
+                0,
+                400,
                 0,
                 0,
                 0,
@@ -5576,11 +5695,14 @@ fn draw_owner_region_item(item: &OwnerDrawItem) {
         return;
     }
     let selected = (item.item_state & ODS_SELECTED_FLAG) != 0;
+    let disabled = control_dimmed_by_modal(item.hwnd_item);
     let mut content_row = item.rc_item;
     content_row.right -= REGION_LIST_SCROLLBAR_W + 4;
     let rect = inset_rect(content_row, 2, 2);
     fill_rect_color(item.hdc, &item.rc_item, ui_color(UiColor::ControlBg));
-    if selected {
+    if disabled {
+        fill_rect_color(item.hdc, &rect, ui_color(UiColor::DisabledBg));
+    } else if selected {
         fill_rect_color(item.hdc, &rect, ui_color(UiColor::Selected));
         sketch_round_rect(item.hdc, &rect, UI_RADIUS, UI_STROKE_WIDTH);
     }
@@ -5599,13 +5721,15 @@ fn draw_owner_region_item(item: &OwnerDrawItem) {
         item.hdc,
         &text,
         &text_rect,
-        if selected {
+        if disabled {
+            ui_color(UiColor::TextWeak)
+        } else if selected {
             ui_color(UiColor::Text)
         } else {
             ui_color(UiColor::TextMuted)
         },
     );
-    if hovered || selected {
+    if !disabled && (hovered || selected) {
         let delete_rect = region_delete_icon_rect(rect);
         let _ = draw_profile_action_icon(item.hdc, &delete_rect, ID_DELETE_PROFILE, false);
     }
@@ -5895,7 +6019,8 @@ fn draw_owner_profile_item(item: &OwnerDrawItem) {
         return;
     }
     let selected = (item.item_state & ODS_SELECTED_FLAG) != 0;
-    let disabled = (item.item_state & ODS_DISABLED_FLAG) != 0;
+    let disabled =
+        (item.item_state & ODS_DISABLED_FLAG) != 0 || control_dimmed_by_modal(item.hwnd_item);
     let rect = inset_rect(item.rc_item, 2, 2);
     let editing = selected && rename_edit_visible_for_profile_list(item.hwnd_item);
     fill_rect_color(
@@ -5959,7 +6084,8 @@ fn rename_edit_visible_for_profile_list(list_hwnd: HWND) -> bool {
 
 fn draw_owner_button(item: &OwnerDrawItem) {
     let id = item.ctl_id as i32;
-    let disabled = (item.item_state & ODS_DISABLED_FLAG) != 0;
+    let disabled =
+        (item.item_state & ODS_DISABLED_FLAG) != 0 || control_dimmed_by_modal(item.hwnd_item);
     if id == ID_SETTINGS_PANEL_BG || id == ID_HOTKEY_PANEL_BG {
         draw_panel_background_item(item);
         return;
@@ -9444,6 +9570,15 @@ fn legacy_action_button_ids() -> &'static [i32] {
     ]
 }
 
+fn hotkey_subgroup_label_ids() -> &'static [i32] {
+    &[
+        ID_HOTKEY_SCALE_GROUP_LABEL,
+        ID_HOTKEY_SCREENSHOT_GROUP_LABEL,
+        ID_HOTKEY_POINTER_OPTION_GROUP_LABEL,
+        ID_HOTKEY_REGION_OPTION_GROUP_LABEL,
+    ]
+}
+
 fn hotkey_panel_ids() -> &'static [i32] {
     &[
         ID_HOTKEY_PANEL_BG,
@@ -9598,6 +9733,10 @@ fn update_modal_base_enabled(state: &SettingsUiState) {
         show_child(hwnd, *id, !covered_by_modal);
         set_child_enabled(hwnd, *id, !modal_active && !covered_by_modal);
     }
+    for id in modal_dim_only_control_ids() {
+        set_child_enabled(hwnd, *id, !modal_active);
+        invalidate(get(hwnd, *id));
+    }
     for id in base_interaction_ids() {
         let enabled = !modal_active && (*id != ID_DELETE_PROFILE || state.selected_index > 0);
         if *id == ID_DELETE_PROFILE {
@@ -9608,6 +9747,16 @@ fn update_modal_base_enabled(state: &SettingsUiState) {
         set_child_enabled(hwnd, *id, enabled);
     }
     hide_legacy_action_buttons(hwnd);
+}
+
+fn modal_dim_only_control_ids() -> &'static [i32] {
+    &[
+        ID_PROFILE_TITLE,
+        ID_PROFILE_LIST,
+        ID_ADD_PROFILE,
+        ID_SETTINGS_BUTTON,
+        ID_TRAY_BUTTON,
+    ]
 }
 
 fn rects_intersect(a: &RECT, b: &RECT) -> bool {
