@@ -817,6 +817,7 @@ static SETTINGS_CONTENT_SCROLL_Y: AtomicIsize = AtomicIsize::new(0);
 static SETTINGS_CONTENT_SCROLL_DRAGGING: AtomicBool = AtomicBool::new(false);
 static SETTINGS_CONTENT_SCROLL_DRAG_OFFSET: AtomicIsize = AtomicIsize::new(0);
 static SETTINGS_SCROLL_LAYOUT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static MODAL_CLOSE_SUPPRESS_CONTENT_CLICK_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_OWNER_BUTTON_COMMAND_ID: AtomicI32 = AtomicI32::new(0);
 static LAST_OWNER_BUTTON_COMMAND_MS: AtomicU64 = AtomicU64::new(0);
 static REGION_TARGET_MODE_CACHE: AtomicIsize =
@@ -1097,6 +1098,16 @@ fn record_owner_button_command(id: i32) {
 fn owner_button_command_recent(id: i32) -> bool {
     LAST_OWNER_BUTTON_COMMAND_ID.load(Ordering::Relaxed) == id
         && now_millis().saturating_sub(LAST_OWNER_BUTTON_COMMAND_MS.load(Ordering::Relaxed)) <= 350
+}
+
+fn suppress_content_click_after_modal_close() {
+    MODAL_CLOSE_SUPPRESS_CONTENT_CLICK_UNTIL_MS
+        .store(now_millis().saturating_add(500), Ordering::Relaxed);
+}
+
+fn modal_close_suppresses_content_click(id: i32) -> bool {
+    scrollable_content_control_ids().contains(&id)
+        && now_millis() <= MODAL_CLOSE_SUPPRESS_CONTENT_CLICK_UNTIL_MS.load(Ordering::Relaxed)
 }
 
 fn now_millis() -> u64 {
@@ -7207,6 +7218,9 @@ fn should_open_folder_picker_from_command(id: i32, code: u32) -> bool {
 fn handle_command(hwnd: HWND, wparam: WPARAM) {
     let id = loword(wparam.0) as i32;
     let code = hiword(wparam.0) as u32;
+    if code == BN_CLICKED && modal_close_suppresses_content_click(id) {
+        return;
+    }
     if code == BN_CLICKED {
         record_owner_button_command(id);
     }
@@ -8276,6 +8290,7 @@ fn refresh_global_controls(state: &mut SettingsUiState) {
 fn show_settings_panel(state: &mut SettingsUiState, visible: bool) {
     if !visible && state.settings_panel_visible {
         apply_screenshot_path_edit(state, ID_WINDOW_SCREENSHOT_PATH_EDIT);
+        suppress_content_click_after_modal_close();
     }
     state.settings_panel_visible = visible;
     SETTINGS_PANEL_PAINT_VISIBLE.store(visible, Ordering::Relaxed);
@@ -8384,6 +8399,9 @@ fn show_hotkey_panel_for(state: &mut SettingsUiState, target: HotkeyEditTarget) 
 }
 
 fn show_hotkey_panel(state: &mut SettingsUiState, visible: bool) {
+    if !visible && state.hotkey_panel_visible {
+        suppress_content_click_after_modal_close();
+    }
     state.hotkey_panel_visible = visible;
     HOTKEY_PANEL_PAINT_VISIBLE.store(visible, Ordering::Relaxed);
     let hwnd = hwnd_from_raw(state.hwnd);
