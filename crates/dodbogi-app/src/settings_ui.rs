@@ -70,6 +70,12 @@ unsafe extern "system" {
     fn win32_screen_to_client(hwnd: HWND, point: *mut POINT) -> i32;
 }
 
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    #[link_name = "GetUserDefaultUILanguage"]
+    fn win32_get_user_default_ui_language() -> u16;
+}
+
 const MIN_TRACK_WIDTH: i32 = 720;
 const MIN_TRACK_HEIGHT: i32 = 500;
 const DEFAULT_WINDOW_WIDTH: i32 = 760;
@@ -983,13 +989,13 @@ fn ui_text(lang: &str, key: UiString) -> &'static str {
         (false, UiString::RegionAdd) => "+ \u{c601}\u{c5ed} \u{cd94}\u{ac00}",
         (true, UiString::RegionTarget) => "Apply target",
         (false, UiString::RegionTarget) => "\u{c801}\u{c6a9} \u{b300}\u{c0c1}",
-        (true, UiString::RegionTargetApp) => "Selected app",
+        (true, UiString::RegionTargetApp) => "Picked",
         (false, UiString::RegionTargetApp) => "\u{c120}\u{d0dd} \u{c571}",
         (true, UiString::RegionTargetAppButton) => "Choose app",
         (false, UiString::RegionTargetAppButton) => "\u{c571} \u{c120}\u{d0dd}",
         (true, UiString::RegionTargetAll) => "All",
         (false, UiString::RegionTargetAll) => "\u{c804}\u{ccb4}",
-        (true, UiString::RegionTargetSelectedApp) => "Selected app",
+        (true, UiString::RegionTargetSelectedApp) => "Picked",
         (false, UiString::RegionTargetSelectedApp) => "\u{c120}\u{d0dd} \u{c571}",
         (true, UiString::RegionScrollUp) => "Up",
         (false, UiString::RegionScrollUp) => "\u{c704}",
@@ -3075,8 +3081,26 @@ fn layout_controls(hwnd: HWND) {
     );
 
     apply_content_scroll_visibility(hwnd, &layout);
+    apply_modal_panel_visibility_after_layout(hwnd);
     if !SETTINGS_SCROLL_LAYOUT_ACTIVE.load(Ordering::Relaxed) {
         invalidate(hwnd);
+    }
+}
+
+fn apply_modal_panel_visibility_after_layout(hwnd: HWND) {
+    let settings_visible = SETTINGS_PANEL_PAINT_VISIBLE.load(Ordering::Relaxed);
+    let hotkey_visible = HOTKEY_PANEL_PAINT_VISIBLE.load(Ordering::Relaxed);
+    for id in settings_panel_ids() {
+        show_child(hwnd, *id, settings_visible);
+    }
+    for id in hotkey_panel_ids() {
+        show_child(hwnd, *id, hotkey_visible);
+    }
+    if settings_visible {
+        raise_panel_children(hwnd, settings_panel_ids());
+    }
+    if hotkey_visible {
+        raise_panel_children(hwnd, hotkey_panel_ids());
     }
 }
 
@@ -4541,18 +4565,10 @@ fn create_controls(hwnd: HWND, icon_dir: &Path) -> Result<(), String> {
         112,
         30,
     )?;
+    create_button(hwnd, "Picked", ID_REGION_TARGET_TOGGLE, 650, 818, 126, 30)?;
     create_button(
         hwnd,
-        "Selected app",
-        ID_REGION_TARGET_TOGGLE,
-        650,
-        818,
-        126,
-        30,
-    )?;
-    create_button(
-        hwnd,
-        "Selected app",
+        "Picked",
         ID_REGION_TARGET_APP_MODE_BUTTON,
         650,
         818,
@@ -9132,15 +9148,28 @@ fn reset_settings(hwnd: HWND, state: &mut SettingsUiState) {
     if result != IDYES {
         return;
     }
+    state.loading = true;
     state.settings = DodbogiSettings::default();
+    state.settings.ui.language = system_default_ui_language();
     state.selected_index = 0;
     state.hovered_profile_index = None;
     state.region_list_scroll = 0;
     let _ = save_settings(state);
+    state.loading = false;
     refresh_all_controls(state);
     push_event(SettingsUiEvent::HotkeysChanged);
     push_event(SettingsUiEvent::ProfileChanged);
     push_event(SettingsUiEvent::GlobalSettingsChanged);
+}
+
+fn system_default_ui_language() -> String {
+    let lang_id = unsafe { win32_get_user_default_ui_language() };
+    let primary_lang_id = lang_id & 0x03ff;
+    if primary_lang_id == 0x12 {
+        "ko".to_string()
+    } else {
+        "en".to_string()
+    }
 }
 
 fn add_profile(state: &mut SettingsUiState) {
