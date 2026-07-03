@@ -944,18 +944,14 @@ fn ui_text(lang: &str, key: UiString) -> &'static str {
         }
         (true, UiString::RegionZoom) => "Selected-area zoom",
         (false, UiString::RegionZoom) => "\u{c9c0}\u{c815} \u{c601}\u{c5ed} \u{d655}\u{b300}",
-        (true, UiString::PointerColorCode) => "Toggle color code display",
-        (false, UiString::PointerColorCode) => {
-            "\u{c0c9}\u{c0c1} \u{cf54}\u{b4dc} \u{bcf4}\u{ae30} \u{cf1c}\u{ae30}/\u{b044}\u{ae30}"
-        }
+        (true, UiString::PointerColorCode) => "Show color code",
+        (false, UiString::PointerColorCode) => "\u{c0c9}\u{c0c1} \u{cf54}\u{b4dc} \u{bcf4}\u{ae30}",
         (true, UiString::PointerColorCodeCopy) => "Copy color code",
         (false, UiString::PointerColorCodeCopy) => {
             "\u{c0c9}\u{c0c1} \u{cf54}\u{b4dc} \u{bcf5}\u{c0ac}"
         }
-        (true, UiString::PointerCursor) => "Toggle pointer display",
-        (false, UiString::PointerCursor) => {
-            "\u{d3ec}\u{c778}\u{d130} \u{d45c}\u{c2dc} \u{cf1c}\u{ae30}/\u{b044}\u{ae30}"
-        }
+        (true, UiString::PointerCursor) => "Show pointer",
+        (false, UiString::PointerCursor) => "\u{d3ec}\u{c778}\u{d130} \u{d45c}\u{c2dc}",
         (true, UiString::ColorCodeToggle) => "Show color code",
         (false, UiString::ColorCodeToggle) => "\u{c0c9}\u{c0c1} \u{cf54}\u{b4dc} \u{bcf4}\u{ae30}",
         (true, UiString::CursorToggle) => "Show pointer",

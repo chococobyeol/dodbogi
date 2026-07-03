@@ -543,12 +543,12 @@ impl AppProfile {
             region_magnifier_regions: Vec::new(),
             region_magnifier_target_mode: RegionMagnifierTargetMode::AllScreens,
             region_magnifier_target_app: String::new(),
-            region_magnifier_border_visible: true,
+            region_magnifier_border_visible: false,
             region_magnifier_mouse_passthrough: false,
             monitor_selection: MonitorSelectionMode::Closest,
             effect_chain: vec!["bilinear".to_string()],
-            capture_title_bar: true,
-            draw_cursor: true,
+            capture_title_bar: false,
+            draw_cursor: false,
             auto_scale: false,
         }
     }
