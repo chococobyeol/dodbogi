@@ -632,7 +632,7 @@ mod imp {
         Win32::{
             Foundation::{
                 CloseHandle, GetLastError, COLORREF, HANDLE, HINSTANCE, HMODULE, HWND, LPARAM,
-                LRESULT, POINT, RECT, TRUE, WPARAM,
+                LRESULT, POINT, RECT, SIZE, TRUE, WPARAM,
             },
             Graphics::{
                 Direct3D::{
@@ -651,9 +651,10 @@ mod imp {
                     DeleteObject, EndPaint, EnumDisplayMonitors, FillRect, GetDC, GetDIBits,
                     GetMonitorInfoW, GetPixel, GetStockObject, InvalidateRect, Rectangle,
                     ReleaseDC, SelectObject, SetBkMode, SetTextColor, SetWindowRgn, StretchBlt,
-                    TextOutW, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
-                    DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ, HMONITOR, HOLLOW_BRUSH, MONITORINFO,
-                    PAINTSTRUCT, PS_SOLID, RGN_OR, ROP_CODE, SRCCOPY, TRANSPARENT,
+                    TextOutW, UpdateWindow, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+                    BLENDFUNCTION, CAPTUREBLT, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ, HMONITOR,
+                    HOLLOW_BRUSH, MONITORINFO, PAINTSTRUCT, PS_SOLID, RGN_OR, ROP_CODE, SRCCOPY,
+                    TRANSPARENT,
                 },
             },
             System::{
@@ -699,22 +700,25 @@ mod imp {
                     LoadIconW, LoadImageW, MessageBoxW, PeekMessageW, PostMessageW, RegisterClassW,
                     SetCursorPos, SetForegroundWindow, SetLayeredWindowAttributes, SetTimer,
                     SetWindowLongPtrW, SetWindowPos, ShowCursor, SystemParametersInfoW,
-                    TranslateMessage, WindowFromPoint, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW,
-                    CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE, GWLP_HWNDPARENT,
-                    GWL_EXSTYLE, HICON, HTCAPTION, HTCLIENT, HTTRANSPARENT, HWND_NOTOPMOST,
-                    HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON,
-                    LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY, MB_OK, MF_CHECKED, MF_GRAYED,
-                    MF_STRING, MF_UNCHECKED, PM_REMOVE, SET_WINDOW_POS_FLAGS, SM_CXVIRTUALSCREEN,
-                    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETMOUSE,
-                    SPI_GETMOUSESPEED, SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_FRAMECHANGED,
-                    SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSENDCHANGING,
-                    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-                    WM_APP, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_ERASEBKGND, WM_HOTKEY,
-                    WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
-                    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
-                    WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP,
-                    WM_SETCURSOR, WM_TIMER, WM_USER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-                    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+                    TranslateMessage, UpdateLayeredWindow, WindowFromPoint, CS_DBLCLKS, CS_HREDRAW,
+                    CS_VREDRAW, CURSORINFO, DI_NORMAL, GUITHREADINFO, GUI_INMOVESIZE,
+                    GWLP_HWNDPARENT, GWL_EXSTYLE, HICON, HTCAPTION, HTCLIENT, HTTRANSPARENT,
+                    HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, ICONINFO, IDC_ARROW, IDI_APPLICATION,
+                    IMAGE_ICON, LR_LOADFROMFILE, LWA_ALPHA, LWA_COLORKEY, MA_NOACTIVATE, MB_OK,
+                    MF_CHECKED, MF_GRAYED, MF_STRING, MF_UNCHECKED, PM_REMOVE,
+                    SET_WINDOW_POS_FLAGS, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+                    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SPI_GETMOUSE, SPI_GETMOUSESPEED,
+                    SPI_SETCURSORS, SPI_SETMOUSESPEED, SWP_FRAMECHANGED, SWP_HIDEWINDOW,
+                    SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOOWNERZORDER,
+                    SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+                    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, ULW_ALPHA, WM_APP, WM_COMMAND,
+                    WM_CONTEXTMENU, WM_DESTROY, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN,
+                    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
+                    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_MOUSEWHEEL,
+                    WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK,
+                    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_TIMER, WM_USER, WNDCLASSW,
+                    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+                    WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
@@ -2754,7 +2758,7 @@ mod imp {
                     geometry.destination_rect.top,
                     geometry.destination_rect.width().max(1),
                     geometry.destination_rect.height().max(1),
-                    window_pos_flags,
+                    window_pos_flags | SWP_NOACTIVATE,
                 )
             }
             .map_err(|error| {
@@ -2779,6 +2783,10 @@ mod imp {
                 lparam: LPARAM,
             ) -> LRESULT {
                 match msg {
+                    WM_MOUSEACTIVATE => {
+                        remember_region_magnifier_foreground(hwnd);
+                        return LRESULT(MA_NOACTIVATE as isize);
+                    }
                     WM_NCHITTEST => {
                         let screen_x = loword_i32(lparam);
                         let screen_y = hiword_i32(lparam);
@@ -2794,11 +2802,17 @@ mod imp {
                         if region_magnifier_mouse_passthrough_enabled(hwnd) {
                             return LRESULT(0);
                         }
+                        restore_region_magnifier_foreground(hwnd);
                         let x = loword_i32(lparam);
                         let y = hiword_i32(lparam);
                         if begin_region_magnifier_resize(hwnd, x, y) {
                             let _ = unsafe { SetCapture(hwnd) };
                             return LRESULT(0);
+                        }
+                    }
+                    WM_NCLBUTTONDOWN => {
+                        if !region_magnifier_mouse_passthrough_enabled(hwnd) {
+                            restore_region_magnifier_foreground(hwnd);
                         }
                     }
                     WM_MOUSEMOVE => {
@@ -2848,7 +2862,7 @@ mod imp {
 
             let host_hwnd = unsafe {
                 CreateWindowExW(
-                    WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                    WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
                     class_name,
                     windows::core::w!("Dodbogi Region Magnifier"),
                     WS_POPUP,
@@ -2868,7 +2882,6 @@ mod imp {
                 ))
             })?;
             mark_region_magnifier_excluded_from_capture(host_hwnd);
-
             Ok(Self {
                 host_hwnd,
                 visible: false,
@@ -3044,11 +3057,15 @@ mod imp {
                 self.set_topmost(false);
                 return;
             }
+            if unsafe { GetForegroundWindow() } == self.host_hwnd {
+                let _ = unsafe { SetForegroundWindow(target) };
+            }
             let target_topmost =
                 (unsafe { GetWindowLongPtrW(target, GWL_EXSTYLE) } & WS_EX_TOPMOST.0 as isize) != 0;
             let _ =
                 unsafe { SetWindowLongPtrW(self.host_hwnd, GWLP_HWNDPARENT, target.0 as isize) };
-            let flags = SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSENDCHANGING | SWP_NOSIZE;
+            let flags =
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING | SWP_NOSIZE;
             let _ = unsafe { SetWindowPos(self.host_hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, flags) };
             if !target_topmost {
                 let _ = unsafe {
@@ -3106,6 +3123,8 @@ mod imp {
 
     static REGION_MAGNIFIER_PAINT_STATE: OnceLock<Mutex<Vec<(isize, RegionMagnifierGeometry)>>> =
         OnceLock::new();
+    static REGION_MAGNIFIER_FOCUS_RETURN_STATE: OnceLock<Mutex<Vec<(isize, isize)>>> =
+        OnceLock::new();
     static REGION_MAGNIFIER_RESIZE_STATE: OnceLock<Mutex<Option<RegionMagnifierResizeState>>> =
         OnceLock::new();
 
@@ -3115,6 +3134,44 @@ mod imp {
 
     fn region_magnifier_resize_state() -> &'static Mutex<Option<RegionMagnifierResizeState>> {
         REGION_MAGNIFIER_RESIZE_STATE.get_or_init(|| Mutex::new(None))
+    }
+
+    fn region_magnifier_focus_return_state() -> &'static Mutex<Vec<(isize, isize)>> {
+        REGION_MAGNIFIER_FOCUS_RETURN_STATE.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    fn remember_region_magnifier_foreground(hwnd: HWND) {
+        let foreground = unsafe { GetForegroundWindow() };
+        if is_null_hwnd(foreground) || foreground == hwnd {
+            return;
+        }
+        if let Ok(mut states) = region_magnifier_focus_return_state().lock() {
+            let hwnd_raw = hwnd_to_raw(hwnd);
+            let foreground_raw = hwnd_to_raw(foreground);
+            if let Some((_, stored)) = states.iter_mut().find(|(stored, _)| *stored == hwnd_raw) {
+                *stored = foreground_raw;
+            } else {
+                states.push((hwnd_raw, foreground_raw));
+            }
+        }
+    }
+
+    fn restore_region_magnifier_foreground(hwnd: HWND) {
+        let target = region_magnifier_focus_return_state()
+            .lock()
+            .ok()
+            .and_then(|states| {
+                let hwnd_raw = hwnd_to_raw(hwnd);
+                states
+                    .iter()
+                    .find(|(stored, _)| *stored == hwnd_raw)
+                    .map(|(_, target)| hwnd_from_raw(*target))
+            });
+        if let Some(target) = target {
+            if !is_null_hwnd(target) && unsafe { IsWindow(Some(target)) }.as_bool() {
+                let _ = unsafe { SetForegroundWindow(target) };
+            }
+        }
     }
 
     fn store_region_magnifier_paint_state(hwnd: HWND, geometry: RegionMagnifierGeometry) {
@@ -3143,6 +3200,10 @@ mod imp {
 
     fn clear_region_magnifier_paint_state(hwnd: HWND) {
         if let Ok(mut states) = region_magnifier_paint_state().lock() {
+            let hwnd_raw = hwnd_to_raw(hwnd);
+            states.retain(|(stored, _)| *stored != hwnd_raw);
+        }
+        if let Ok(mut states) = region_magnifier_focus_return_state().lock() {
             let hwnd_raw = hwnd_to_raw(hwnd);
             states.retain(|(stored, _)| *stored != hwnd_raw);
         }
@@ -3293,16 +3354,11 @@ mod imp {
 
     unsafe fn paint_region_magnifier_from_state(hwnd: HWND) -> LRESULT {
         let mut ps = PAINTSTRUCT::default();
-        let hdc = BeginPaint(hwnd, &mut ps);
-        if let Some(state) = lookup_region_magnifier_paint_state(hwnd) {
-            let _ = paint_region_magnifier_frame_hdc(hwnd, hdc, &state);
-        } else {
-            let mut client = RECT::default();
-            let _ = GetClientRect(hwnd, &mut client);
-            fill_rect_color(hdc, &client, COLORREF(0x00fffef9));
-            draw_pointer_magnifier_border_hdc(hdc, &client);
-        }
+        let _ = BeginPaint(hwnd, &mut ps);
         let _ = EndPaint(hwnd, &ps);
+        if let Some(state) = lookup_region_magnifier_paint_state(hwnd) {
+            let _ = paint_region_magnifier_frame(hwnd, &state);
+        }
         LRESULT(0)
     }
 
@@ -3310,35 +3366,28 @@ mod imp {
         host_hwnd: HWND,
         geometry: &RegionMagnifierGeometry,
     ) -> Result<(), Win32Error> {
-        let hdc = unsafe { GetDC(Some(host_hwnd)) };
-        if hdc.is_invalid() {
-            return Err(Win32Error::Api(
-                "GetDC region magnifier host failed".to_string(),
-            ));
-        }
-        let result = paint_region_magnifier_frame_hdc(host_hwnd, hdc, geometry);
-        let _ = unsafe { ReleaseDC(Some(host_hwnd), hdc) };
-        result
-    }
-
-    fn paint_region_magnifier_frame_hdc(
-        host_hwnd: HWND,
-        hdc: HDC,
-        geometry: &RegionMagnifierGeometry,
-    ) -> Result<(), Win32Error> {
         let mut client = RECT::default();
         let _ = unsafe { GetClientRect(host_hwnd, &mut client) };
         let client_w = (client.right - client.left).max(1);
         let client_h = (client.bottom - client.top).max(1);
-        let buffer_dc = unsafe { CreateCompatibleDC(Some(hdc)) };
+
+        let screen_hdc = unsafe { GetDC(None) };
+        if screen_hdc.is_invalid() {
+            return Err(Win32Error::Api(
+                "GetDC screen failed for region magnifier".to_string(),
+            ));
+        }
+        let buffer_dc = unsafe { CreateCompatibleDC(Some(screen_hdc)) };
         if buffer_dc.is_invalid() {
+            let _ = unsafe { ReleaseDC(None, screen_hdc) };
             return Err(Win32Error::Api(
                 "CreateCompatibleDC region magnifier buffer failed".to_string(),
             ));
         }
-        let buffer_bitmap = unsafe { CreateCompatibleBitmap(hdc, client_w, client_h) };
+        let buffer_bitmap = unsafe { CreateCompatibleBitmap(screen_hdc, client_w, client_h) };
         if buffer_bitmap.is_invalid() {
             let _ = unsafe { DeleteDC(buffer_dc) };
+            let _ = unsafe { ReleaseDC(None, screen_hdc) };
             return Err(Win32Error::Api(
                 "CreateCompatibleBitmap region magnifier buffer failed".to_string(),
             ));
@@ -3347,15 +3396,6 @@ mod imp {
         fill_rect_color(buffer_dc, &client, COLORREF(0x00fffef9));
         let border = region_magnifier_geometry_border_inset(geometry);
 
-        let screen_hdc = unsafe { GetDC(None) };
-        if screen_hdc.is_invalid() {
-            let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
-            let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
-            let _ = unsafe { DeleteDC(buffer_dc) };
-            return Err(Win32Error::Api(
-                "GetDC screen failed for region magnifier".to_string(),
-            ));
-        }
         // Live selected-area magnifier windows are themselves topmost.  CAPTUREBLT
         // makes overlapping Dodbogi magnifier windows feed into each other, which
         // causes visible flicker/feedback when multiple output windows overlap.
@@ -3378,11 +3418,11 @@ mod imp {
             )
             .as_bool()
         };
-        let _ = unsafe { ReleaseDC(None, screen_hdc) };
         if !blt_ok {
             let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
             let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
             let _ = unsafe { DeleteDC(buffer_dc) };
+            let _ = unsafe { ReleaseDC(None, screen_hdc) };
             return Err(Win32Error::Api(
                 "StretchBlt region magnifier frame failed".to_string(),
             ));
@@ -3392,29 +3432,54 @@ mod imp {
             draw_pointer_magnifier_border_hdc(buffer_dc, &client);
             draw_region_magnifier_resize_grip_hdc(buffer_dc, &client);
         }
-        let present_ok = unsafe {
-            BitBlt(
-                hdc,
-                0,
-                0,
-                client_w,
-                client_h,
+        let mut window_rect = RECT::default();
+        let window_rect_result = unsafe { GetWindowRect(host_hwnd, &mut window_rect) };
+        if let Err(error) = window_rect_result {
+            let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
+            let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
+            let _ = unsafe { DeleteDC(buffer_dc) };
+            let _ = unsafe { ReleaseDC(None, screen_hdc) };
+            return Err(Win32Error::Api(format!(
+                "GetWindowRect region magnifier present failed: {error:?}"
+            )));
+        }
+        let destination = POINT {
+            x: window_rect.left,
+            y: window_rect.top,
+        };
+        let size = SIZE {
+            cx: client_w,
+            cy: client_h,
+        };
+        let source = POINT { x: 0, y: 0 };
+        let blend = BLENDFUNCTION {
+            BlendOp: AC_SRC_OVER as u8,
+            BlendFlags: 0,
+            SourceConstantAlpha: 255,
+            AlphaFormat: 0,
+        };
+        let present_result = unsafe {
+            UpdateLayeredWindow(
+                host_hwnd,
+                Some(screen_hdc),
+                Some(&destination),
+                Some(&size),
                 Some(buffer_dc),
-                0,
-                0,
-                SRCCOPY,
+                Some(&source),
+                COLORREF(0),
+                Some(&blend),
+                ULW_ALPHA,
             )
-            .is_ok()
         };
         let _ = unsafe { SelectObject(buffer_dc, old_buffer) };
         let _ = unsafe { DeleteObject(HGDIOBJ(buffer_bitmap.0)) };
         let _ = unsafe { DeleteDC(buffer_dc) };
-        if !present_ok {
-            return Err(Win32Error::Api(
-                "BitBlt region magnifier present failed".to_string(),
-            ));
-        }
-        Ok(())
+        let _ = unsafe { ReleaseDC(None, screen_hdc) };
+        present_result.map_err(|error| {
+            Win32Error::Api(format!(
+                "UpdateLayeredWindow region magnifier present failed: {error:?}"
+            ))
+        })
     }
 
     pub fn save_region_magnifier_screenshot(
@@ -6463,6 +6528,58 @@ mod tests {
         assert!(style.layered_passthrough);
         assert!(!style.taskbar_entry);
         assert!(!style.alt_tab_entry);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn region_magnifier_host_is_noactivate_layered_and_toggles_passthrough() {
+        use std::ffi::c_void;
+        use windows::Win32::{
+            Foundation::HWND,
+            UI::WindowsAndMessaging::{
+                GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+                WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+            },
+        };
+
+        let mut window = RegionMagnifierWindow::create_hidden()
+            .expect("region magnifier host should be creatable");
+        let hwnd = HWND(window.hwnd() as *mut c_void);
+        let creation_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        for required in [
+            WS_EX_LAYERED,
+            WS_EX_NOACTIVATE,
+            WS_EX_TOOLWINDOW,
+            WS_EX_TOPMOST,
+        ] {
+            assert_ne!(creation_style & required.0 as isize, 0);
+        }
+        assert_eq!(creation_style & WS_EX_TRANSPARENT.0 as isize, 0);
+
+        let passthrough = RegionMagnifierConfig {
+            source_rect: PhysicalRect {
+                left: 0,
+                top: 0,
+                right: 16,
+                bottom: 16,
+            },
+            scale_percent: 100,
+            output_position: Some((32, 32)),
+            border_visible: false,
+            mouse_passthrough: true,
+        };
+        let _ = window.update(passthrough);
+        let passthrough_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        assert_ne!(passthrough_style & WS_EX_TRANSPARENT.0 as isize, 0);
+        assert_ne!(passthrough_style & WS_EX_NOACTIVATE.0 as isize, 0);
+
+        let _ = window.apply_profile_config(RegionMagnifierConfig {
+            mouse_passthrough: false,
+            ..passthrough
+        });
+        let interactive_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        assert_eq!(interactive_style & WS_EX_TRANSPARENT.0 as isize, 0);
+        assert_ne!(interactive_style & WS_EX_NOACTIVATE.0 as isize, 0);
     }
 
     #[test]

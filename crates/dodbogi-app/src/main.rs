@@ -1273,29 +1273,54 @@ impl ProductRuntimeController {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
-        let mut reports = Vec::new();
-        for (index, (id, config)) in items.into_iter().enumerate() {
-            let safe_id = sanitize_filename_component(&id);
-            let path = screenshot_dir.join(format!(
-                "dodbogi-region-magnifier-{safe_id}-{timestamp_ms}-{index}.png"
-            ));
-            let report: RegionMagnifierScreenshotReport =
-                dodbogi_win32::save_region_magnifier_screenshot(&path, config)
-                    .map_err(|error| format!("{error:?}"))?;
-            reports.push(RuntimeRegionScreenshotReport {
-                path: report.path,
-                output_width: report.output_width,
-                output_height: report.output_height,
-            });
-        }
-
-        if was_active {
-            for active in &mut self.region_magnifiers {
-                let _ = active.window.update(active.config);
+        let capture_result = (|| {
+            let mut reports = Vec::new();
+            for (index, (id, config)) in items.into_iter().enumerate() {
+                let safe_id = sanitize_filename_component(&id);
+                let path = screenshot_dir.join(format!(
+                    "dodbogi-region-magnifier-{safe_id}-{timestamp_ms}-{index}.png"
+                ));
+                let report: RegionMagnifierScreenshotReport =
+                    dodbogi_win32::save_region_magnifier_screenshot(&path, config)
+                        .map_err(|error| format!("{error:?}"))?;
+                reports.push(RuntimeRegionScreenshotReport {
+                    path: report.path,
+                    output_width: report.output_width,
+                    output_height: report.output_height,
+                });
             }
-        }
+            Ok::<_, Box<dyn std::error::Error>>(RuntimeRegionScreenshotsReport { reports })
+        })();
 
-        Ok(RuntimeRegionScreenshotsReport { reports })
+        let restore_result = if was_active {
+            let mut restore_errors = Vec::new();
+            for active in &mut self.region_magnifiers {
+                if let Err(error) = active.window.update(active.config) {
+                    restore_errors.push(format!("{}: {error:?}", active.id));
+                }
+            }
+            self.apply_region_magnifier_z_order_policy();
+            if restore_errors.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "Failed to restore selected-area zoom after screenshot: {}",
+                    restore_errors.join("; ")
+                ))
+            }
+        } else {
+            Ok(())
+        };
+
+        match (capture_result, restore_result) {
+            (Ok(report), Ok(())) => Ok(report),
+            (Err(capture_error), Ok(())) => Err(capture_error),
+            (Ok(_), Err(restore_error)) => Err(restore_error.into()),
+            (Err(capture_error), Err(restore_error)) => Err(format!(
+                "Selected-area screenshot failed: {capture_error}; {restore_error}"
+            )
+            .into()),
+        }
     }
 
     fn forward_overlay_input(
@@ -1342,15 +1367,9 @@ impl ProductRuntimeController {
 
 fn sync_region_magnifier_order_for_settings(
     controller: &mut ProductRuntimeController,
-    settings_window: &Option<settings_ui::SettingsUiWindow>,
+    _settings_window: &Option<settings_ui::SettingsUiWindow>,
 ) {
     controller.apply_region_magnifier_z_order_policy();
-    if let Some(window) = settings_window.as_ref() {
-        if window.is_visible() {
-            window.raise_above_overlays();
-            controller.apply_region_magnifier_z_order_policy();
-        }
-    }
 }
 
 fn persist_region_magnifier_state_changes(
@@ -1545,8 +1564,8 @@ fn handle_runtime_message(
         | ShellMessage::Hotkey { id: 4, .. } => {
             let settings = load_settings_from_path(&paths.settings_file)?;
             let screenshot_dir = resolve_user_screenshot_dir(&settings.screenshots.window_dir);
-            match controller.save_screenshot(&screenshot_dir)? {
-                Some(report) => {
+            match controller.save_screenshot(&screenshot_dir) {
+                Ok(Some(report)) => {
                     append_log_line(
                         &paths.log_file,
                         &format!(
@@ -1562,12 +1581,17 @@ fn handle_runtime_message(
                         report.path.display()
                     );
                 }
-                None => {
+                Ok(None) => {
                     append_log_line(&paths.log_file, "screenshot_requested_no_active_session")?;
                     runtime_println!(
                         runtime_output,
                         "Screenshot request ignored: no active scaling session."
                     );
+                }
+                Err(error) => {
+                    let detail = format!("window_screenshot_error={error}");
+                    append_log_line(&paths.log_file, &detail)?;
+                    runtime_println!(runtime_output, "{detail}");
                 }
             }
             Ok(false)
@@ -1658,7 +1682,6 @@ fn handle_runtime_message(
                     let detail = format!("region_magnifier_screenshot_error={error}");
                     append_log_line(&paths.log_file, &detail)?;
                     runtime_println!(runtime_output, "{detail}");
-                    dodbogi_win32::show_user_message("Dodbogi", &error.to_string());
                 }
             }
             Ok(false)
